@@ -1,0 +1,33 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    environment:
+      - NEXT_PUBLIC_ADMIN_API_URL=http://localhost:4100
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend/src
+          target: /app/src
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "4100:4100"
+    volumes:
+      - ./backend/src:/app/src
+    env_file:
+      - .env
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./backend/src
+          target: /app/src
