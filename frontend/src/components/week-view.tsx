@@ -1,5 +1,5 @@
-import React from "react";
 "use client";
+import React from "react";
 
 import { fmtTime, fmtDate, matchesDate, slotColor, DAYS, type Schedule } from "./schedule-utils";
 
