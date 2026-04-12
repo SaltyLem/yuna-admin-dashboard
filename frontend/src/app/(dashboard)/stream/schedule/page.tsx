@@ -274,7 +274,7 @@ export default function SchedulePage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}>
           <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6 w-[420px] space-y-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold">{editingId ? "Edit Schedule" : "Add Schedule"}</h3>
 
