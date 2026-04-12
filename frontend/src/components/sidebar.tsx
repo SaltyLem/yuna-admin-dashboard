@@ -20,6 +20,7 @@ const NAV: NavGroup[] = [
       { href: "/stream/comments", label: "Comments" },
       { href: "/stream/history", label: "History" },
       { href: "/stream/programs", label: "Programs" },
+      { href: "/stream/auto-play", label: "Auto Play" },
     ],
   },
   {

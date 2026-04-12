@@ -25,7 +25,7 @@ function getWeekStart(d: Date): Date {
 }
 
 function repeatLabel(s: Schedule): string {
-  if (s.repeat_type === "once") return s.date ?? "";
+  if (s.repeat_type === "once") return (s.date ?? "").slice(0, 10);
   if (s.repeat_type === "daily") return "Every day";
   return s.repeat_days.map((d) => DAYS[d]).join(", ");
 }
@@ -62,6 +62,22 @@ export default function SchedulePage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const openAddWithTime = (date: string, startMinutes: number, endMinutes: number) => {
+    setEditingId(null);
+    setForm({
+      channel: "ja",
+      repeatType: "once",
+      repeatDays: [],
+      date,
+      startTime: fmtTime(startMinutes),
+      endTime: fmtTime(endMinutes),
+      program: programs[0]?.name ?? "chat:golden",
+      label: "",
+      title: "",
+    });
+    setShowModal(true);
+  };
+
   const openAdd = (date: string | null) => {
     setEditingId(null);
     setForm({
@@ -84,7 +100,7 @@ export default function SchedulePage() {
       channel: s.channel,
       repeatType: s.repeat_type,
       repeatDays: s.repeat_days ?? [],
-      date: s.date,
+      date: s.date ? s.date.slice(0, 10) : null,
       startTime: fmtTime(s.start_minutes),
       endTime: fmtTime(s.end_minutes),
       program: s.program,
@@ -221,6 +237,7 @@ export default function SchedulePage() {
               schedules={schedules}
               onClickSlot={openEdit}
               onClickDate={(d) => openAdd(d)}
+              onDragCreate={openAddWithTime}
             />
           </>
         ) : (

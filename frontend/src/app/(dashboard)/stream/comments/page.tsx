@@ -25,7 +25,10 @@ export default function CommentsPage() {
   const onMessage = useCallback((event: string, data: unknown) => {
     if (event !== "stream:comments") return;
     const c = data as Record<string, unknown>;
-    setComments((prev) => [
+    setComments((prev) => {
+      const id = String(c.id ?? Date.now());
+      if (prev.some((p) => p.id === id)) return prev;
+      return [
       ...prev.slice(-499),
       {
         id: String(c.id ?? Date.now()),
@@ -36,7 +39,8 @@ export default function CommentsPage() {
         amount: c.amount ? String(c.amount) : undefined,
         timestamp: typeof c.timestamp === "number" ? c.timestamp : Date.now(),
       },
-    ]);
+    ];
+    });
   }, []);
 
   const { connected } = useAdminWs(onMessage);

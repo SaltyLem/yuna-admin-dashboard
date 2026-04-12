@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { apiFetch } from "./use-api";
-import crypto from "crypto";
 
 interface VirtualViewer {
   name: string;
@@ -42,7 +41,7 @@ export function AutoReplyPanel() {
     if (!newName) return;
     const viewer: VirtualViewer = {
       name: newName,
-      authorChannelId: "x_" + Array.from(crypto.getRandomValues(new Uint8Array(4))).map(b => b.toString(16).padStart(2, "0")).join(""),
+      authorChannelId: "x_" + Math.random().toString(36).slice(2, 10),
       location: newLocation,
     };
     void save({ viewers: [...config.viewers, viewer] });

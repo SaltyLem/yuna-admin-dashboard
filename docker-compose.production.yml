@@ -18,12 +18,11 @@ services:
     env_file:
       - ../../.env
     environment:
-      - REDIS_STREAM_URL=redis://stream-redis:6379
-    networks:
-      - default
-      - prism_stream_default
+      - REDIS_STREAM_URL=redis://192.168.11.13:6381
+      - SQLITE_PATH=/data/viewers.db
+    volumes:
+      - admin-data:/data
     restart: unless-stopped
 
-networks:
-  prism_stream_default:
-    external: true
+volumes:
+  admin-data:

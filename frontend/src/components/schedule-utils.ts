@@ -36,7 +36,7 @@ export function fmtDate(d: Date): string {
 
 export function matchesDate(s: Schedule, date: string): boolean {
   if (!s.enabled) return false;
-  if (s.repeat_type === "once") return s.date === date;
+  if (s.repeat_type === "once") return (s.date ?? "").slice(0, 10) === date;
   if (s.repeat_type === "daily") return true;
   if (s.repeat_type === "weekly") {
     const dow = new Date(date + "T00:00:00").getDay();

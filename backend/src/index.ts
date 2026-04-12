@@ -1,8 +1,10 @@
 import { initDb } from "./db/client.js";
+import { initSqlite } from "./db/sqlite.js";
 import schedulesRoutes from "./routes/schedules.js";
 import commentsRoutes from "./routes/comments.js";
 import personsRoutes from "./routes/persons.js";
 import autoReplyRoutes from "./routes/auto-reply.js";
+import aapRoutes from "./routes/additional-auto-play.js";
 import programsRoutes from "./routes/programs.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
@@ -89,6 +91,7 @@ app.use("/programs", programsRoutes);
 app.use("/comments", commentsRoutes);
 app.use("/persons", personsRoutes);
 app.use("/auto-reply", autoReplyRoutes);
+app.use("/additional-auto-play", aapRoutes);
 
 // ── WebSocket (認証付き) ──
 const wss = new WebSocketServer({ server, path: "/ws" });
@@ -150,6 +153,8 @@ async function startRedisSubscriber(): Promise<void> {
 server.listen(PORT, () => {
   console.log(`[yuna-admin] Running on http://localhost:${PORT}`);
 });
+
+initSqlite();
 
 initDb().catch((err) => console.error("[db] init failed:", err.message));
 
