@@ -73,19 +73,19 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
     <div className="overflow-x-auto" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
       <div className="relative grid grid-cols-[3rem_repeat(7,1fr)] min-w-[700px] select-none">
         {/* Header */}
-        <div className="border-b border-neutral-800" />
+        <div className="border-b border-border" />
         {dates.map((d) => {
           const date = fmtDate(d);
           const isToday = date === today;
           return (
             <div
               key={date}
-              className={`text-center text-xs py-2 border-b border-l border-neutral-800 ${
-                isToday ? "text-white font-bold" : "text-neutral-400"
+              className={`text-center text-xs py-2 border-b border-l border-border ${
+                isToday ? "text-text font-bold" : "text-text-muted"
               }`}
             >
               <div>{DAYS[d.getDay()]}</div>
-              <div className={`text-lg ${isToday ? "text-white" : "text-neutral-300"}`}>{d.getDate()}</div>
+              <div className={`text-lg ${isToday ? "text-text" : "text-text-soft"}`}>{d.getDate()}</div>
             </div>
           );
         })}
@@ -93,7 +93,7 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
         {/* Hour rows */}
         {HOURS.map((hour) => (
           <React.Fragment key={hour}>
-            <div className="text-xs text-neutral-600 text-right pr-2 pt-1 h-12 border-b border-neutral-800/50">
+            <div className="text-xs text-text-faint text-right pr-2 pt-1 h-12 border-b border-border/50">
               {String(hour).padStart(2, "0")}
             </div>
             {dates.map((d) => {
@@ -105,7 +105,7 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
               return (
                 <div
                   key={`${date}-${hour}`}
-                  className="h-12 border-b border-l border-neutral-800/50 relative"
+                  className="h-12 border-b border-l border-border/50 relative"
                 >
                   {/* 15分刻みの subdivision */}
                   {[0, 1, 2, 3].map((q) => {
@@ -115,9 +115,9 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
                     return (
                       <div
                         key={q}
-                        className={`absolute left-0 right-0 cursor-pointer hover:bg-neutral-700/30 ${
-                          isSelecting ? "bg-neutral-500/50" : ""
-                        } ${q > 0 ? "border-t border-neutral-800/30" : ""}`}
+                        className={`absolute left-0 right-0 cursor-pointer hover:bg-panel-hover/30 ${
+                          isSelecting ? "bg-accent/30" : ""
+                        } ${q > 0 ? "border-t border-border/30" : ""}`}
                         style={{ top: `${q * SLOT_HEIGHT}px`, height: `${SLOT_HEIGHT}px` }}
                         onMouseDown={(e) => { e.preventDefault(); handleMouseDown(date, slot); }}
                         onMouseEnter={() => handleMouseEnter(date, slot)}

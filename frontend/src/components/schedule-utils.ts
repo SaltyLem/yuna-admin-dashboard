@@ -4,6 +4,8 @@ export interface Schedule {
   repeat_type: "once" | "daily" | "weekly";
   repeat_days: number[];
   date: string | null;
+  /** Last valid date for recurring schedules. NULL = no end. */
+  ends_on: string | null;
   start_minutes: number;
   end_minutes: number;
   program: string;
@@ -36,6 +38,7 @@ export function fmtDate(d: Date): string {
 
 export function matchesDate(s: Schedule, date: string): boolean {
   if (!s.enabled) return false;
+  if (s.ends_on && (s.ends_on.slice(0, 10)) < date) return false;
   if (s.repeat_type === "once") return (s.date ?? "").slice(0, 10) === date;
   if (s.repeat_type === "daily") return true;
   if (s.repeat_type === "weekly") {
@@ -46,6 +49,6 @@ export function matchesDate(s: Schedule, date: string): boolean {
 }
 
 export function slotColor(s: Schedule): string {
-  if (!s.enabled) return "bg-neutral-800 text-neutral-500 line-through";
+  if (!s.enabled) return "bg-panel-2 text-text-muted line-through";
   return s.channel === "ja" ? "bg-red-900/40 text-red-300" : "bg-blue-900/40 text-blue-300";
 }

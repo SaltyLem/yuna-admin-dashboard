@@ -2,148 +2,125 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { NAV, type NavItem } from "./nav-config";
+import { LogoutIcon } from "./icons";
 
-interface NavGroup {
-  label: string;
-  icon: string;
-  href: string;
-  children?: { href: string; label: string }[];
+export interface SidebarProps {
+  open?: boolean;
 }
 
-const NAV: NavGroup[] = [
-  { label: "Overview", icon: "⬡", href: "/" },
-  {
-    label: "Stream", icon: "▶", href: "/stream",
-    children: [
-      { href: "/stream/schedule", label: "Schedule" },
-      { href: "/stream/comments", label: "Comments" },
-      { href: "/stream/history", label: "History" },
-      { href: "/stream/programs", label: "Programs" },
-      { href: "/stream/auto-play", label: "Auto Play" },
-    ],
-  },
-  {
-    label: "Trade", icon: "◇", href: "/trade",
-    children: [
-      { href: "/trade/rules", label: "Rules" },
-      { href: "/trade/positions", label: "Positions" },
-      { href: "/trade/wallets", label: "Wallets" },
-    ],
-  },
-  {
-    label: "YUNA", icon: "◉", href: "/yuna",
-    children: [
-      { href: "/yuna/memory", label: "Memory" },
-      { href: "/yuna/thoughts", label: "Thoughts" },
-      { href: "/yuna/goals", label: "Goals" },
-    ],
-  },
-  { label: "Settings", icon: "⚙", href: "/settings" },
-];
-
-export function Sidebar() {
+/**
+ * Collapsible nav rail.
+ * - Collapsed (64px): icons only, children hidden
+ * - Expanded (224px): icons + labels; children shown indented when parent section is active
+ */
+export function Sidebar({ open = false }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {};
-    for (const g of NAV) {
-      if (g.children && pathname.startsWith(g.href)) init[g.href] = true;
-    }
-    return init;
-  });
 
-  const toggle = (href: string) =>
-    setExpanded((prev) => ({ ...prev, [href]: !prev[href] }));
-
-  const isActive = (href: string) =>
+  const isExact = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href;
 
-  const isGroupActive = (group: NavGroup) =>
-    group.href === "/" ? pathname === "/" : pathname.startsWith(group.href);
+  const isInSection = (item: NavItem) =>
+    item.href === "/"
+      ? pathname === "/"
+      : pathname === item.href || pathname.startsWith(item.href + "/");
 
-  const handleLogout = () => {
+  const logout = () => {
     localStorage.removeItem("admin_token");
     document.cookie = "admin_token=; path=/; max-age=0";
     router.push("/login");
   };
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-56 bg-neutral-900 border-r border-neutral-800 flex flex-col">
-      <div className="px-5 py-5 border-b border-neutral-800">
-        <h1 className="text-lg font-bold text-white tracking-tight">YUNA Admin</h1>
-      </div>
+    <aside
+      className={`shrink-0 flex flex-col py-4 gap-2 border-r border-border transition-[width] duration-200 ease-out ${
+        open ? "w-56" : "w-16"
+      }`}
+    >
+      <nav className={`flex-1 flex flex-col gap-1 ${open ? "px-3" : "items-center"}`}>
+        {NAV.map((item) => {
+          const sectionActive = isInSection(item);
+          const exactActive = isExact(item.href);
+          const showChildren = open && item.children && sectionActive;
 
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV.map((group) => (
-          <div key={group.href}>
-            {group.children ? (
-              <>
-                <button
-                  onClick={() => toggle(group.href)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded text-sm transition ${
-                    isGroupActive(group)
-                      ? "text-white"
-                      : "text-neutral-400 hover:text-white hover:bg-neutral-800/50"
+          return (
+            <div key={item.href} className={open ? "w-full" : undefined}>
+              <Link
+                href={item.href}
+                aria-label={item.label}
+                title={open ? undefined : item.label}
+                className={[
+                  "group relative flex items-center rounded-xl transition",
+                  open ? "h-11 w-full px-3 gap-3" : "h-11 w-11 justify-center",
+                  exactActive || (!open && sectionActive)
+                    ? "bg-accent-muted text-accent"
+                    : "text-text-muted hover:text-text hover:bg-panel",
+                ].join(" ")}
+              >
+                <span className="flex items-center justify-center shrink-0">
+                  {item.icon}
+                </span>
+                <span
+                  className={`text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${
+                    open ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
                   }`}
                 >
-                  <span className="text-base w-5 text-center">{group.icon}</span>
-                  <span className="flex-1 text-left">{group.label}</span>
-                  <span className={`text-xs text-neutral-500 transition-transform ${expanded[group.href] ? "rotate-90" : ""}`}>
-                    ▸
-                  </span>
-                </button>
-                {expanded[group.href] && (
-                  <div className="ml-8 space-y-0.5 mt-0.5">
-                    <Link
-                      href={group.href}
-                      className={`block px-3 py-1.5 rounded text-sm transition ${
-                        isActive(group.href)
-                          ? "bg-neutral-800 text-white"
-                          : "text-neutral-500 hover:text-white hover:bg-neutral-800/50"
-                      }`}
-                    >
-                      Overview
-                    </Link>
-                    {group.children.map((child) => (
+                  {item.label}
+                </span>
+                {sectionActive && !open && (
+                  <span
+                    className="absolute -left-2 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-accent"
+                    aria-hidden
+                  />
+                )}
+              </Link>
+
+              {showChildren && (
+                <div className="mt-0.5 mb-1 ml-5 pl-4 border-l border-border flex flex-col gap-0.5">
+                  {item.children!.map((child) => {
+                    const childActive = isExact(child.href);
+                    return (
                       <Link
                         key={child.href}
                         href={child.href}
-                        className={`block px-3 py-1.5 rounded text-sm transition ${
-                          isActive(child.href)
-                            ? "bg-neutral-800 text-white"
-                            : "text-neutral-500 hover:text-white hover:bg-neutral-800/50"
+                        className={`flex items-center h-8 px-2 rounded-md text-sm whitespace-nowrap transition ${
+                          childActive
+                            ? "text-accent"
+                            : "text-text-muted hover:text-text"
                         }`}
                       >
                         {child.label}
                       </Link>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <Link
-                href={group.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded text-sm transition ${
-                  isActive(group.href)
-                    ? "bg-neutral-800 text-white"
-                    : "text-neutral-400 hover:text-white hover:bg-neutral-800/50"
-                }`}
-              >
-                <span className="text-base w-5 text-center">{group.icon}</span>
-                {group.label}
-              </Link>
-            )}
-          </div>
-        ))}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
-      <div className="px-3 py-4 border-t border-neutral-800">
+      <div className={open ? "px-3" : "flex justify-center"}>
         <button
-          onClick={handleLogout}
-          className="w-full text-left px-3 py-2 rounded text-sm text-neutral-500 hover:text-white hover:bg-neutral-800/50 transition"
+          onClick={logout}
+          aria-label="Logout"
+          title={open ? undefined : "Logout"}
+          className={[
+            "flex items-center rounded-xl transition text-text-muted hover:text-text hover:bg-panel cursor-pointer",
+            open ? "h-11 w-full px-3 gap-3" : "h-11 w-11 justify-center",
+          ].join(" ")}
         >
-          Logout
+          <span className="flex items-center justify-center shrink-0">
+            <LogoutIcon />
+          </span>
+          <span
+            className={`text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${
+              open ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
+            }`}
+          >
+            Logout
+          </span>
         </button>
       </div>
     </aside>

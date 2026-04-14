@@ -16,37 +16,39 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3100:3000"
+    environment:
+      - NEXT_PUBLIC_ADMIN_API_URL=http://localhost:4101
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=300
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
-    environment:
-      - NEXT_PUBLIC_ADMIN_API_URL=http://localhost:4100
-    develop:
-      watch:
-        - action: sync
-          path: ./frontend/src
-          target: /app/src
+      - ./frontend/next.config.ts:/app/next.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - frontend-next-cache:/app/.next
+    restart: unless-stopped
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "4100:4100"
-    volumes:
-      - ./backend/src:/app/src
+      - "4101:4100"
     env_file:
       - .env
     environment:
       - DATABASE_URL=postgresql://yuna_admin:yuna_admin_local@db:5432/yuna_admin
+      - YUNA_API_URL=http://host.docker.internal:4000
+    volumes:
+      - ./backend/src:/app/src
+      - dev-admin-data:/data
     depends_on:
       - db
-    develop:
-      watch:
-        - action: sync+restart
-          path: ./backend/src
-          target: /app/src
+    restart: unless-stopped
 
 volumes:
   dev-db-data:
+  dev-admin-data:
+  frontend-next-cache:

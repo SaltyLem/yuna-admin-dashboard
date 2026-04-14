@@ -1,1 +1,65 @@
 @import "tailwindcss";
+
+/*
+ * Design tokens
+ * ---
+ * Semantic color names so components never reference raw hex.
+ * Tailwind v4 @theme exposes these as utility classes (bg-bg, text-text, etc).
+ */
+@theme {
+  --color-bg: #0a0e1a;
+  --color-panel: #131a2e;
+  --color-panel-2: #1a2138;
+  --color-panel-hover: #1f2743;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.12);
+
+  --color-accent: #f0a0d0;
+  --color-accent-hover: #f5b5db;
+  --color-accent-muted: rgba(240, 160, 208, 0.12);
+
+  --color-text: rgba(255, 255, 255, 0.95);
+  --color-text-soft: rgba(255, 255, 255, 0.72);
+  --color-text-muted: rgba(255, 255, 255, 0.45);
+  --color-text-faint: rgba(255, 255, 255, 0.25);
+
+  --color-success: #5be093;
+  --color-warning: #ffc960;
+  --color-danger: #ff6b7a;
+
+  --font-display: var(--font-orbitron), ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Hiragino Kaku Gothic ProN",
+    "Noto Sans JP",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Panel base — reused across cards. `@utility` registers it as a class. */
+@utility panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+}
+
+@utility panel-soft {
+  background: var(--color-panel-2);
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+}
+
+@utility pill {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+}

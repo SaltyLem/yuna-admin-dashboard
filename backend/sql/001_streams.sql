@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS stream_schedules (
   repeat_type   TEXT NOT NULL DEFAULT 'once' CHECK (repeat_type IN ('once', 'daily', 'weekly')),
   repeat_days   INT[] DEFAULT '{}',
   date          DATE,
+  ends_on       DATE,
   start_minutes INT NOT NULL,
   end_minutes   INT NOT NULL,
   program       TEXT NOT NULL,

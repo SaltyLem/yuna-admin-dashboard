@@ -33,21 +33,21 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-neutral-950">
+    <div className="flex items-center justify-center min-h-screen bg-bg">
       <form onSubmit={handleLogin} className="flex flex-col gap-4 w-72">
-        <h1 className="text-xl font-bold text-white text-center">YUNA Admin</h1>
+        <h1 className="text-xl font-bold text-text text-center">YUNA Admin</h1>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password"
           autoFocus
-          className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-500"
+          className="px-4 py-2 bg-panel border border-border-strong rounded text-text placeholder:text-text-faint focus:outline-none focus:border-accent"
         />
         {error && <p className="text-red-400 text-sm text-center">{error}</p>}
         <button
           type="submit"
-          className="px-4 py-2 bg-white text-black rounded font-medium hover:bg-neutral-200 transition"
+          className="px-4 py-2 bg-accent text-bg rounded font-medium hover:bg-accent-hover transition"
         >
           Login
         </button>

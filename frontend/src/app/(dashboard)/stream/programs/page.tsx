@@ -57,16 +57,16 @@ export default function ProgramsPage() {
         <h2 className="text-xl font-semibold">Programs</h2>
         <button
           onClick={openAdd}
-          className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm hover:bg-neutral-700 transition"
+          className="px-3 py-1.5 bg-panel-2 border border-border-strong rounded text-sm hover:bg-panel-hover transition"
         >
           + Add
         </button>
       </div>
 
-      <div className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
+      <div className="bg-panel border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-neutral-800 text-neutral-400">
+            <tr className="border-b border-border text-text-muted">
               <th className="text-left px-4 py-3 font-medium">Name</th>
               <th className="text-left px-4 py-3 font-medium">Overlay Path</th>
               <th className="text-left px-4 py-3 font-medium">Description</th>
@@ -75,18 +75,18 @@ export default function ProgramsPage() {
           </thead>
           <tbody>
             {programs.map((p) => (
-              <tr key={p.id} className="border-b border-neutral-800/50 hover:bg-neutral-800/30">
-                <td className="px-4 py-3 font-mono text-white">{p.name}</td>
-                <td className="px-4 py-3 text-neutral-400 font-mono">{p.overlay_path}</td>
-                <td className="px-4 py-3 text-neutral-400">{p.description}</td>
+              <tr key={p.id} className="border-b border-border/50 hover:bg-panel-hover/30">
+                <td className="px-4 py-3 font-mono text-text">{p.name}</td>
+                <td className="px-4 py-3 text-text-muted font-mono">{p.overlay_path}</td>
+                <td className="px-4 py-3 text-text-muted">{p.description}</td>
                 <td className="px-4 py-3 text-right space-x-2">
-                  <button onClick={() => openEdit(p)} className="text-neutral-500 hover:text-white">Edit</button>
-                  <button onClick={() => handleDelete(p.id)} className="text-neutral-500 hover:text-red-400">Del</button>
+                  <button onClick={() => openEdit(p)} className="text-text-muted hover:text-text">Edit</button>
+                  <button onClick={() => handleDelete(p.id)} className="text-text-muted hover:text-red-400">Del</button>
                 </td>
               </tr>
             ))}
             {programs.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-neutral-500">No programs</td></tr>
+              <tr><td colSpan={4} className="px-4 py-8 text-center text-text-muted">No programs</td></tr>
             )}
           </tbody>
         </table>
@@ -94,52 +94,52 @@ export default function ProgramsPage() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6 w-96 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-panel border border-border rounded-lg p-6 w-96 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold">{editingId ? "Edit Program" : "Add Program"}</h3>
 
             <div>
-              <label className="block text-xs text-neutral-400 mb-1">Name</label>
+              <label className="block text-xs text-text-muted mb-1">Name</label>
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="e.g. chat:golden"
-                className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm"
+                className="w-full px-3 py-1.5 bg-panel-2 border border-border-strong rounded text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-neutral-400 mb-1">Overlay Path</label>
+              <label className="block text-xs text-text-muted mb-1">Overlay Path</label>
               <input
                 type="text"
                 value={form.overlayPath}
                 onChange={(e) => setForm({ ...form, overlayPath: e.target.value })}
                 placeholder="e.g. /default"
-                className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm"
+                className="w-full px-3 py-1.5 bg-panel-2 border border-border-strong rounded text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-neutral-400 mb-1">Description</label>
+              <label className="block text-xs text-text-muted mb-1">Description</label>
               <input
                 type="text"
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 placeholder="e.g. Golden time chat"
-                className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm"
+                className="w-full px-3 py-1.5 bg-panel-2 border border-border-strong rounded text-sm"
               />
             </div>
 
             <div className="flex gap-3 pt-2">
               <button
                 onClick={handleSave}
-                className="flex-1 py-2 bg-white text-black rounded font-medium text-sm hover:bg-neutral-200 transition"
+                className="flex-1 py-2 bg-accent text-bg rounded font-medium text-sm hover:bg-accent-hover transition"
               >
                 {editingId ? "Update" : "Create"}
               </button>
               <button
                 onClick={() => setShowModal(false)}
-                className="flex-1 py-2 bg-neutral-800 border border-neutral-700 rounded text-sm hover:bg-neutral-700 transition"
+                className="flex-1 py-2 bg-panel-2 border border-border-strong rounded text-sm hover:bg-panel-hover transition"
               >
                 Cancel
               </button>

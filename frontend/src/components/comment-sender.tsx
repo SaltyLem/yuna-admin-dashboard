@@ -65,13 +65,13 @@ export function CommentSender() {
   };
 
   return (
-    <div className="mb-4 bg-neutral-900 border border-neutral-800 rounded-lg">
+    <div className="bg-panel border border-border rounded-lg">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-neutral-300 hover:text-white transition"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-text-soft hover:text-text transition"
       >
         Send Comment
-        <span className={`text-neutral-500 transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
+        <span className={`text-text-muted transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
       </button>
 
       {open && (
@@ -85,8 +85,8 @@ export function CommentSender() {
                   onClick={() => selectRecent(r)}
                   className={`px-2 py-0.5 rounded text-xs transition ${
                     authorChannelId === r.authorChannelId
-                      ? "bg-neutral-700 text-white"
-                      : "bg-neutral-800 text-neutral-400 hover:text-white"
+                      ? "bg-panel-hover text-text"
+                      : "bg-panel-2 text-text-muted hover:text-text"
                   }`}
                 >
                   {r.user}
@@ -98,11 +98,11 @@ export function CommentSender() {
           <div className="grid grid-cols-[80px_1fr_auto] gap-2 items-end">
             {/* Channel */}
             <div>
-              <label className="block text-xs text-neutral-500 mb-1">Channel</label>
+              <label className="block text-xs text-text-muted mb-1">Channel</label>
               <select
                 value={channel}
                 onChange={(e) => setChannel(e.target.value)}
-                className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm"
+                className="w-full px-2 py-1.5 bg-panel-2 border border-border-strong rounded text-sm"
               >
                 <option value="ja">JA</option>
                 <option value="en">EN</option>
@@ -111,22 +111,22 @@ export function CommentSender() {
 
             {/* User */}
             <div>
-              <label className="block text-xs text-neutral-500 mb-1">
-                User {authorChannelId && <span className="text-neutral-600 ml-1">({authorChannelId.slice(0, 12)})</span>}
+              <label className="block text-xs text-text-muted mb-1">
+                User {authorChannelId && <span className="text-text-faint ml-1">({authorChannelId.slice(0, 12)})</span>}
               </label>
               <input
                 type="text"
                 value={user}
                 onChange={(e) => { setUser(e.target.value); setAuthorChannelId(""); }}
                 placeholder="User name"
-                className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm placeholder-neutral-600"
+                className="w-full px-2 py-1.5 bg-panel-2 border border-border-strong rounded text-sm placeholder:text-text-faint"
               />
             </div>
 
             {/* Pick person */}
             <button
               onClick={() => setShowPicker(true)}
-              className="px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm text-neutral-400 hover:text-white transition"
+              className="px-2 py-1.5 bg-panel-2 border border-border-strong rounded text-sm text-text-muted hover:text-text transition"
             >
               Search
             </button>
@@ -140,12 +140,12 @@ export function CommentSender() {
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Comment text"
-              className="flex-1 px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm placeholder-neutral-600"
+              className="flex-1 px-3 py-1.5 bg-panel-2 border border-border-strong rounded text-sm placeholder:text-text-faint"
             />
             <button
               onClick={handleSend}
               disabled={sending || !user || !text}
-              className="px-4 py-1.5 bg-white text-black rounded text-sm font-medium hover:bg-neutral-200 transition disabled:opacity-30"
+              className="px-4 py-1.5 bg-accent text-bg rounded text-sm font-medium hover:bg-accent-hover transition disabled:opacity-30"
             >
               Send
             </button>
@@ -153,7 +153,7 @@ export function CommentSender() {
 
           {/* Superchat */}
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-sm text-neutral-400 cursor-pointer">
+            <label className="flex items-center gap-1.5 text-sm text-text-muted cursor-pointer">
               <input
                 type="checkbox"
                 checked={isSuperchat}
@@ -168,7 +168,7 @@ export function CommentSender() {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="¥500"
-                className="w-24 px-2 py-1 bg-neutral-800 border border-neutral-700 rounded text-sm"
+                className="w-24 px-2 py-1 bg-panel-2 border border-border-strong rounded text-sm"
               />
             )}
           </div>

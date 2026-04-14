@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/components/use-api";
+import { modal } from "@/components/modal";
 import { WeekView } from "@/components/week-view";
 import {
   type Schedule, type Program, DAYS,
@@ -24,10 +25,50 @@ function getWeekStart(d: Date): Date {
   return result;
 }
 
-function repeatLabel(s: Schedule): string {
-  if (s.repeat_type === "once") return (s.date ?? "").slice(0, 10);
-  if (s.repeat_type === "daily") return "Every day";
-  return s.repeat_days.map((d) => DAYS[d]).join(", ");
+function yesterdayISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return fmtDate(d);
+}
+
+interface ScheduleFormValues {
+  channel: "ja" | "en";
+  repeatType: "once" | "daily" | "weekly";
+  repeatDays: number[];
+  date: string | null;
+  startTime: string;
+  endTime: string;
+  program: string;
+  label: string;
+  title: string;
+}
+
+function defaultForm(programs: Program[], date: string | null): ScheduleFormValues {
+  return {
+    channel: "ja",
+    repeatType: date ? "once" : "weekly",
+    repeatDays: [],
+    date,
+    startTime: "19:00",
+    endTime: "22:00",
+    program: programs[0]?.name ?? "chat:golden",
+    label: "",
+    title: "",
+  };
+}
+
+function formFromSchedule(s: Schedule): ScheduleFormValues {
+  return {
+    channel: s.channel as "ja" | "en",
+    repeatType: s.repeat_type,
+    repeatDays: s.repeat_days ?? [],
+    date: s.date ? s.date.slice(0, 10) : null,
+    startTime: fmtTime(s.start_minutes),
+    endTime: fmtTime(s.end_minutes),
+    program: s.program,
+    label: s.label,
+    title: s.title,
+  };
 }
 
 export default function SchedulePage() {
@@ -37,116 +78,51 @@ export default function SchedulePage() {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
-  const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState({
-    channel: "ja",
-    repeatType: "weekly" as "once" | "daily" | "weekly",
-    repeatDays: [] as number[],
-    date: null as string | null,
-    startTime: "19:00",
-    endTime: "22:00",
-    program: "chat:golden",
-    label: "",
-    title: "",
-  });
 
   const load = useCallback(async () => {
-    const [sData, pData] = await Promise.all([
-      apiFetch<{ schedules: Schedule[] }>("/schedules"),
-      apiFetch<{ programs: Program[] }>("/programs"),
-    ]);
-    setSchedules(sData.schedules);
-    setPrograms(pData.programs);
+    try {
+      const [sData, pData] = await Promise.all([
+        apiFetch<{ schedules: Schedule[] }>("/schedules"),
+        apiFetch<{ programs: Program[] }>("/programs"),
+      ]);
+      setSchedules(sData.schedules);
+      setPrograms(pData.programs);
+    } catch { /* toast already shown */ }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
 
+  const openForm = (initial: ScheduleFormValues, schedule: Schedule | null) => {
+    modal.open({
+      title: schedule ? "Edit schedule" : "New schedule",
+      size: "md",
+      content: (
+        <ScheduleForm
+          initial={initial}
+          schedule={schedule}
+          programs={programs}
+          onSaved={() => { modal.close(); void load(); }}
+          onDeleted={() => { modal.close(); void load(); }}
+        />
+      ),
+    });
+  };
+
+  const openAdd = (date: string | null) => openForm(defaultForm(programs, date), null);
+
   const openAddWithTime = (date: string, startMinutes: number, endMinutes: number) => {
-    setEditingId(null);
-    setForm({
-      channel: "ja",
-      repeatType: "once",
-      repeatDays: [],
-      date,
-      startTime: fmtTime(startMinutes),
-      endTime: fmtTime(endMinutes),
-      program: programs[0]?.name ?? "chat:golden",
-      label: "",
-      title: "",
-    });
-    setShowModal(true);
+    openForm(
+      {
+        ...defaultForm(programs, date),
+        repeatType: "once",
+        startTime: fmtTime(startMinutes),
+        endTime: fmtTime(endMinutes),
+      },
+      null,
+    );
   };
 
-  const openAdd = (date: string | null) => {
-    setEditingId(null);
-    setForm({
-      channel: "ja",
-      repeatType: date ? "once" : "weekly",
-      repeatDays: [],
-      date,
-      startTime: "19:00",
-      endTime: "22:00",
-      program: programs[0]?.name ?? "chat:golden",
-      label: "",
-      title: "",
-    });
-    setShowModal(true);
-  };
-
-  const openEdit = (s: Schedule) => {
-    setEditingId(s.id);
-    setForm({
-      channel: s.channel,
-      repeatType: s.repeat_type,
-      repeatDays: s.repeat_days ?? [],
-      date: s.date ? s.date.slice(0, 10) : null,
-      startTime: fmtTime(s.start_minutes),
-      endTime: fmtTime(s.end_minutes),
-      program: s.program,
-      label: s.label,
-      title: s.title,
-    });
-    setShowModal(true);
-  };
-
-  const handleSave = async () => {
-    const body = {
-      channel: form.channel,
-      repeatType: form.repeatType,
-      repeatDays: form.repeatType === "weekly" ? form.repeatDays : [],
-      date: form.repeatType === "once" ? form.date : null,
-      startMinutes: parseTime(form.startTime),
-      endMinutes: parseTime(form.endTime),
-      program: form.program,
-      label: form.label,
-      title: form.title,
-    };
-    if (editingId) {
-      await apiFetch(`/schedules/${editingId}`, { method: "PUT", body: JSON.stringify(body) });
-    } else {
-      await apiFetch("/schedules", { method: "POST", body: JSON.stringify(body) });
-    }
-    setShowModal(false);
-    await load();
-  };
-
-  const handleDelete = async (id: number) => {
-    await apiFetch(`/schedules/${id}`, { method: "DELETE" });
-    await load();
-  };
-
-  const handleToggle = async (s: Schedule) => {
-    await apiFetch(`/schedules/${s.id}`, { method: "PUT", body: JSON.stringify({ enabled: !s.enabled }) });
-    await load();
-  };
-
-  const toggleDay = (day: number) => {
-    setForm((f) => ({
-      ...f,
-      repeatDays: f.repeatDays.includes(day) ? f.repeatDays.filter((d) => d !== day) : [...f.repeatDays, day].sort(),
-    }));
-  };
+  const openEdit = (s: Schedule) => openForm(formFromSchedule(s), s);
 
   // Month nav
   const prevMonth = () => { if (month === 0) { setYear(year - 1); setMonth(11); } else setMonth(month - 1); };
@@ -160,7 +136,6 @@ export default function SchedulePage() {
   const days = daysInMonth(year, month);
   const startDay = firstDayOfWeek(year, month);
   const today = fmtDate(new Date());
-  const repeating = schedules.filter((s) => s.repeat_type !== "once");
 
   const weekEndDate = new Date(weekStart);
   weekEndDate.setDate(weekEndDate.getDate() + 6);
@@ -177,79 +152,59 @@ export default function SchedulePage() {
   );
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="h-full flex flex-col">
+      <div className="flex items-center justify-between mb-6 shrink-0">
         <h2 className="text-xl font-semibold">Schedule</h2>
         <div className="flex items-center gap-3">
-          <div className="flex gap-1 bg-neutral-900 border border-neutral-800 rounded-lg p-0.5">
+          <div className="flex gap-1 bg-panel border border-border rounded-lg p-0.5">
             <button onClick={() => setViewMode("week")}
-              className={`px-3 py-1 rounded text-sm transition ${viewMode === "week" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-white"}`}>
+              className={`px-3 py-1 rounded text-sm transition ${viewMode === "week" ? "bg-panel-hover text-text" : "text-text-muted hover:text-text"}`}>
               Week
             </button>
             <button onClick={() => setViewMode("month")}
-              className={`px-3 py-1 rounded text-sm transition ${viewMode === "month" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-white"}`}>
+              className={`px-3 py-1 rounded text-sm transition ${viewMode === "month" ? "bg-panel-hover text-text" : "text-text-muted hover:text-text"}`}>
               Month
             </button>
           </div>
           <button onClick={() => openAdd(null)}
-            className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm hover:bg-neutral-700 transition">
+            className="px-3 py-1.5 bg-panel border border-border rounded text-sm hover:bg-panel-hover transition">
             + New
           </button>
         </div>
       </div>
 
-      {/* Recurring schedules */}
-      {repeating.length > 0 && (
-        <div className="mb-6 bg-neutral-900 border border-neutral-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-neutral-400 mb-3">Recurring</h3>
-          <div className="space-y-2">
-            {repeating.map((s) => (
-              <div key={s.id} className="flex items-center gap-3 text-sm">
-                <span className={`w-6 font-medium ${s.channel === "ja" ? "text-red-400" : "text-blue-400"}`}>{s.channel.toUpperCase()}</span>
-                <span className="text-neutral-300 w-28">{fmtTime(s.start_minutes)} - {fmtTime(s.end_minutes)}</span>
-                <span className="text-neutral-300 flex-1">{s.label}</span>
-                <span className="text-neutral-500 text-xs">{repeatLabel(s)}</span>
-                <button onClick={() => handleToggle(s)} className={`w-8 text-center ${s.enabled ? "text-green-400" : "text-neutral-600"}`}>
-                  {s.enabled ? "ON" : "OFF"}
-                </button>
-                <button onClick={() => openEdit(s)} className="text-neutral-500 hover:text-white">Edit</button>
-                <button onClick={() => handleDelete(s.id)} className="text-neutral-500 hover:text-red-400">Del</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Calendar / Week View */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
+      <div className="panel p-4 flex-1 min-h-0 flex flex-col overflow-hidden">
         {viewMode === "week" ? (
           <>
-            <div className="flex items-center justify-between mb-4">
-              <button onClick={prevWeek} className="text-neutral-400 hover:text-white px-2 py-1">&lt;</button>
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <button onClick={prevWeek} className="text-text-muted hover:text-text px-2 py-1">&lt;</button>
               <div className="flex items-center gap-3">
                 <h3 className="text-lg font-medium">{weekLabel}</h3>
-                <button onClick={thisWeek} className="text-xs text-neutral-500 hover:text-white border border-neutral-700 rounded px-2 py-0.5">Today</button>
+                <button onClick={thisWeek} className="text-xs text-text-muted hover:text-text border border-border rounded px-2 py-0.5">Today</button>
               </div>
-              <button onClick={nextWeek} className="text-neutral-400 hover:text-white px-2 py-1">&gt;</button>
+              <button onClick={nextWeek} className="text-text-muted hover:text-text px-2 py-1">&gt;</button>
             </div>
-            <WeekView
-              weekStart={weekStart}
-              schedules={schedules}
-              onClickSlot={openEdit}
-              onClickDate={(d) => openAdd(d)}
-              onDragCreate={openAddWithTime}
-            />
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <WeekView
+                weekStart={weekStart}
+                schedules={schedules}
+                onClickSlot={openEdit}
+                onClickDate={(d) => openAdd(d)}
+                onDragCreate={openAddWithTime}
+              />
+            </div>
           </>
         ) : (
           <>
-            <div className="flex items-center justify-between mb-4">
-              <button onClick={prevMonth} className="text-neutral-400 hover:text-white px-2 py-1">&lt;</button>
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <button onClick={prevMonth} className="text-text-muted hover:text-text px-2 py-1">&lt;</button>
               <h3 className="text-lg font-medium">{year}/{String(month + 1).padStart(2, "0")}</h3>
-              <button onClick={nextMonth} className="text-neutral-400 hover:text-white px-2 py-1">&gt;</button>
+              <button onClick={nextMonth} className="text-text-muted hover:text-text px-2 py-1">&gt;</button>
             </div>
-            <div className="grid grid-cols-7 gap-px">
+            <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-7 gap-px">
               {DAYS.map((d) => (
-                <div key={d} className="text-center text-xs text-neutral-500 py-2">{d}</div>
+                <div key={d} className="text-center text-xs text-text-muted py-2">{d}</div>
               ))}
               {Array.from({ length: startDay }).map((_, i) => (
                 <div key={`e-${i}`} className="min-h-24" />
@@ -261,8 +216,8 @@ export default function SchedulePage() {
                 const isToday = date === today;
                 return (
                   <div key={day} onClick={() => openAdd(date)}
-                    className={`min-h-24 border border-neutral-800 p-1 cursor-pointer transition hover:bg-neutral-800/50 ${isToday ? "border-neutral-600 bg-neutral-800/30" : ""}`}>
-                    <div className={`text-xs mb-1 ${isToday ? "text-white font-bold" : "text-neutral-500"}`}>{day}</div>
+                    className={`min-h-24 border border-border p-1 cursor-pointer transition hover:bg-panel/50 ${isToday ? "border-border-strong bg-panel/30" : ""}`}>
+                    <div className={`text-xs mb-1 ${isToday ? "text-text font-bold" : "text-text-muted"}`}>{day}</div>
                     <div className="space-y-0.5">{daySchedules.map(renderSlot)}</div>
                   </div>
                 );
@@ -271,103 +226,235 @@ export default function SchedulePage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}>
-          <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6 w-[420px] space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold">{editingId ? "Edit Schedule" : "Add Schedule"}</h3>
+// ── Modal content: schedule form ──
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-neutral-400 mb-1">Channel</label>
-                <select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })}
-                  className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm">
-                  <option value="ja">JA</option>
-                  <option value="en">EN</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-neutral-400 mb-1">Repeat</label>
-                <select value={form.repeatType} onChange={(e) => setForm({ ...form, repeatType: e.target.value as "once" | "daily" | "weekly" })}
-                  className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm">
-                  <option value="once">Once</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                </select>
-              </div>
-            </div>
+interface ScheduleFormProps {
+  initial: ScheduleFormValues;
+  schedule: Schedule | null;
+  programs: Program[];
+  onSaved: () => void;
+  onDeleted: () => void;
+}
 
-            {form.repeatType === "weekly" && (
-              <div>
-                <label className="block text-xs text-neutral-400 mb-1">Days</label>
-                <div className="flex gap-1">
-                  {DAYS.map((d, i) => (
-                    <button key={i} type="button" onClick={() => toggleDay(i)}
-                      className={`px-2.5 py-1 rounded text-xs transition ${form.repeatDays.includes(i) ? "bg-white text-black" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"}`}>
-                      {d}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: ScheduleFormProps) {
+  const [form, setForm] = useState<ScheduleFormValues>(initial);
 
-            {form.repeatType === "once" && (
-              <div>
-                <label className="block text-xs text-neutral-400 mb-1">Date</label>
-                <input type="date" value={form.date ?? ""} onChange={(e) => setForm({ ...form, date: e.target.value || null })}
-                  className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm" />
-              </div>
-            )}
+  const toggleDay = (day: number) => {
+    setForm((f) => ({
+      ...f,
+      repeatDays: f.repeatDays.includes(day)
+        ? f.repeatDays.filter((d) => d !== day)
+        : [...f.repeatDays, day].sort(),
+    }));
+  };
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-neutral-400 mb-1">Start</label>
-                <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })}
-                  className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs text-neutral-400 mb-1">End</label>
-                <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })}
-                  className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm" />
-              </div>
-            </div>
+  const handleSave = async () => {
+    const body = {
+      channel: form.channel,
+      repeatType: form.repeatType,
+      repeatDays: form.repeatType === "weekly" ? form.repeatDays : [],
+      date: form.repeatType === "once" ? form.date : null,
+      startMinutes: parseTime(form.startTime),
+      endMinutes: parseTime(form.endTime),
+      program: form.program,
+      label: form.label,
+      title: form.title,
+    };
+    try {
+      if (schedule) {
+        await apiFetch(`/schedules/${schedule.id}`, { method: "PUT", body: JSON.stringify(body) });
+      } else {
+        await apiFetch("/schedules", { method: "POST", body: JSON.stringify(body) });
+      }
+    } catch {
+      return;
+    }
+    onSaved();
+  };
 
-            <div>
-              <label className="block text-xs text-neutral-400 mb-1">Program</label>
-              <select value={form.program} onChange={(e) => setForm({ ...form, program: e.target.value })}
-                className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm">
-                {programs.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-              </select>
-            </div>
+  const requestDelete = () => {
+    if (!schedule) return;
+    if (schedule.repeat_type === "once") {
+      void hardDelete(schedule.id, onDeleted);
+      return;
+    }
+    modal.open({
+      title: "Delete recurring schedule",
+      size: "sm",
+      content: (
+        <DeleteRecurringContent
+          schedule={schedule}
+          onDone={onDeleted}
+        />
+      ),
+    });
+  };
 
-            <div>
-              <label className="block text-xs text-neutral-400 mb-1">Label</label>
-              <input type="text" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })}
-                placeholder="e.g. ゴールデンタイム"
-                className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm" />
-            </div>
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Channel">
+          <select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value as "ja" | "en" })}
+            className={FIELD_CLASS}>
+            <option value="ja">JA</option>
+            <option value="en">EN</option>
+          </select>
+        </Field>
+        <Field label="Repeat">
+          <select value={form.repeatType} onChange={(e) => setForm({ ...form, repeatType: e.target.value as ScheduleFormValues["repeatType"] })}
+            className={FIELD_CLASS}>
+            <option value="once">Once</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+          </select>
+        </Field>
+      </div>
 
-            <div>
-              <label className="block text-xs text-neutral-400 mb-1">Title</label>
-              <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder="e.g. 夜のまったり雑談"
-                className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm" />
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button onClick={handleSave}
-                className="flex-1 py-2 bg-white text-black rounded font-medium text-sm hover:bg-neutral-200 transition">
-                {editingId ? "Update" : "Create"}
+      {form.repeatType === "weekly" && (
+        <Field label="Days">
+          <div className="flex gap-1">
+            {DAYS.map((d, i) => (
+              <button key={i} type="button" onClick={() => toggleDay(i)}
+                className={`px-2.5 py-1 rounded text-xs transition ${form.repeatDays.includes(i) ? "bg-accent text-bg" : "bg-panel text-text-muted hover:bg-panel-hover"}`}>
+                {d}
               </button>
-              <button onClick={() => setShowModal(false)}
-                className="flex-1 py-2 bg-neutral-800 border border-neutral-700 rounded text-sm hover:bg-neutral-700 transition">
-                Cancel
-              </button>
-            </div>
+            ))}
           </div>
-        </div>
+        </Field>
       )}
+
+      {form.repeatType === "once" && (
+        <Field label="Date">
+          <input type="date" value={form.date ?? ""} onChange={(e) => setForm({ ...form, date: e.target.value || null })}
+            className={FIELD_CLASS} />
+        </Field>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Start">
+          <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })}
+            className={FIELD_CLASS} />
+        </Field>
+        <Field label="End">
+          <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })}
+            className={FIELD_CLASS} />
+        </Field>
+      </div>
+
+      <Field label="Program">
+        <select value={form.program} onChange={(e) => setForm({ ...form, program: e.target.value })}
+          className={FIELD_CLASS}>
+          {programs.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Label">
+        <input type="text" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })}
+          placeholder="e.g. ゴールデンタイム" className={FIELD_CLASS} />
+      </Field>
+
+      <Field label="Title">
+        <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+          placeholder="e.g. 夜のまったり雑談" className={FIELD_CLASS} />
+      </Field>
+
+      <div className="flex items-center gap-3 pt-2">
+        {schedule && (
+          <button
+            onClick={requestDelete}
+            className="px-3 py-2 text-sm text-[color:var(--color-danger)] hover:bg-[color:var(--color-danger)]/10 rounded transition"
+          >
+            Delete
+          </button>
+        )}
+        <div className="flex-1" />
+        <button onClick={() => modal.close()}
+          className="px-4 py-2 text-sm text-text-muted hover:text-text transition">
+          Cancel
+        </button>
+        <button onClick={handleSave}
+          className="px-4 py-2 bg-accent text-bg rounded-md font-medium text-sm hover:bg-accent-hover transition">
+          {schedule ? "Update" : "Create"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal content: recurring delete choice ──
+
+function DeleteRecurringContent({ schedule, onDone }: { schedule: Schedule; onDone: () => void }) {
+  const stopFromToday = async () => {
+    try {
+      await apiFetch(`/schedules/${schedule.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ endsOn: yesterdayISO() }),
+      });
+    } catch { return; }
+    onDone();
+  };
+
+  const removeAll = async () => {
+    try {
+      await apiFetch(`/schedules/${schedule.id}`, { method: "DELETE" });
+    } catch { return; }
+    onDone();
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-text-muted leading-relaxed">
+        &quot;{schedule.label}&quot; は繰り返しスケジュールです。
+      </p>
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={stopFromToday}
+          className="text-left px-4 py-3 rounded-lg border border-border hover:bg-panel-hover transition"
+        >
+          <div className="text-sm font-medium text-text">今日から先を削除</div>
+          <div className="text-xs text-text-muted mt-0.5">過去の配信履歴は残す（昨日まで有効）</div>
+        </button>
+        <button
+          onClick={removeAll}
+          className="text-left px-4 py-3 rounded-lg border border-[color:var(--color-danger)]/30 hover:bg-[color:var(--color-danger)]/10 transition"
+        >
+          <div className="text-sm font-medium text-[color:var(--color-danger)]">全て削除</div>
+          <div className="text-xs text-text-muted mt-0.5">過去のインスタンスも含めて完全削除</div>
+        </button>
+      </div>
+      <div className="flex justify-end">
+        <button
+          onClick={() => modal.close()}
+          className="px-4 py-2 text-sm text-text-muted hover:text-text transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+async function hardDelete(id: number, onDone: () => void) {
+  try {
+    await apiFetch(`/schedules/${id}`, { method: "DELETE" });
+  } catch { return; }
+  onDone();
+}
+
+// ── Small helpers ──
+
+const FIELD_CLASS =
+  "w-full px-3 py-1.5 bg-panel border border-border rounded text-sm focus:outline-none focus:border-accent transition";
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-xs text-text-muted mb-1">{label}</label>
+      {children}
     </div>
   );
 }

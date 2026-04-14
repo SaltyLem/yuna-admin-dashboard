@@ -6,6 +6,8 @@ import personsRoutes from "./routes/persons.js";
 import autoReplyRoutes from "./routes/auto-reply.js";
 import aapRoutes from "./routes/additional-auto-play.js";
 import programsRoutes from "./routes/programs.js";
+import goalsRoutes from "./routes/goals.js";
+import memoryRoutes from "./routes/memory.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
 import { createServer } from "http";
@@ -74,6 +76,7 @@ app.get("/schedules/active", async (req, res) => {
     `SELECT s.*, p.overlay_path FROM stream_schedules s
      LEFT JOIN stream_programs p ON p.name = s.program
      WHERE s.enabled = true
+       AND (s.ends_on IS NULL OR s.ends_on >= $1)
        AND (s.date = $1 OR (s.date IS NULL AND NOT EXISTS (
          SELECT 1 FROM stream_schedules s2
          WHERE s2.channel = s.channel
@@ -92,6 +95,8 @@ app.use("/comments", commentsRoutes);
 app.use("/persons", personsRoutes);
 app.use("/auto-reply", autoReplyRoutes);
 app.use("/additional-auto-play", aapRoutes);
+app.use("/goals", goalsRoutes);
+app.use("/memory", memoryRoutes);
 
 // ── WebSocket (認証付き) ──
 const wss = new WebSocketServer({ server, path: "/ws" });

@@ -41,11 +41,12 @@ router.post("/", async (req: Request, res: Response) => {
 // PUT /schedules/:id
 router.put("/:id", async (req: Request, res: Response) => {
   const id = parseInt(String(req.params.id), 10);
-  const { channel, repeatType, repeatDays, date, startMinutes, endMinutes, program, label, title, enabled } = req.body as {
+  const { channel, repeatType, repeatDays, date, endsOn, startMinutes, endMinutes, program, label, title, enabled } = req.body as {
     channel?: string;
     repeatType?: string;
     repeatDays?: number[];
     date?: string | null;
+    endsOn?: string | null;
     startMinutes?: number;
     endMinutes?: number;
     program?: string;
@@ -53,6 +54,9 @@ router.put("/:id", async (req: Request, res: Response) => {
     title?: string;
     enabled?: boolean;
   };
+
+  // Distinguish "not provided" from "null". Explicit null clears ends_on.
+  const endsOnProvided = Object.prototype.hasOwnProperty.call(req.body, "endsOn");
 
   const result = await query(
     `UPDATE stream_schedules
@@ -66,9 +70,10 @@ router.put("/:id", async (req: Request, res: Response) => {
          label = COALESCE($8, label),
          title = COALESCE($9, title),
          enabled = COALESCE($10, enabled),
+         ends_on = CASE WHEN $12::boolean THEN $11::date ELSE ends_on END,
          updated_at = NOW()
-     WHERE id = $11 RETURNING *`,
-    [channel, repeatType, repeatDays, date, startMinutes, endMinutes, program, label, title, enabled, id],
+     WHERE id = $13 RETURNING *`,
+    [channel, repeatType, repeatDays, date, startMinutes, endMinutes, program, label, title, enabled, endsOn ?? null, endsOnProvided, id],
   );
 
   if (result.rowCount === 0) {

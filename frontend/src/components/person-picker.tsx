@@ -58,30 +58,30 @@ export function PersonPicker({ onSelect, onClose }: PersonPickerProps) {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-neutral-900 border border-neutral-800 rounded-lg w-96 max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b border-neutral-800">
+      <div className="bg-panel border border-border rounded-lg w-96 max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-border">
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => { setQuery(e.target.value); search(e.target.value); }}
             placeholder="Search by name or ID..."
-            className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-500"
+            className="w-full px-3 py-2 bg-panel-2 border border-border-strong rounded text-sm text-text placeholder:text-text-faint focus:outline-none focus:border-accent"
           />
         </div>
         <div className="flex-1 overflow-y-auto p-2">
-          {loading && <p className="text-neutral-500 text-sm text-center py-4">Searching...</p>}
+          {loading && <p className="text-text-muted text-sm text-center py-4">Searching...</p>}
           {!loading && results.length === 0 && query.length >= 2 && (
-            <p className="text-neutral-500 text-sm text-center py-4">No results</p>
+            <p className="text-text-muted text-sm text-center py-4">No results</p>
           )}
           {results.map((p) => (
             <button
               key={p.id}
               onClick={() => handleSelect(p)}
-              className="w-full text-left px-3 py-2 rounded hover:bg-neutral-800 transition text-sm"
+              className="w-full text-left px-3 py-2 rounded hover:bg-panel-2 transition text-sm"
             >
-              <div className="text-white">{p.nickname ?? p.primaryName}</div>
-              <div className="text-neutral-500 text-xs">
+              <div className="text-text">{p.nickname ?? p.primaryName}</div>
+              <div className="text-text-muted text-xs">
                 {p.identities.map((i) => `${i.platform}: ${i.platformUid.slice(0, 12)}`).join(", ") || "no identities"}
               </div>
             </button>
