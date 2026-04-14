@@ -1,4 +1,16 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=yuna_admin
+      - POSTGRES_PASSWORD=yuna_admin_local
+      - POSTGRES_DB=yuna_admin
+    volumes:
+      - dev-db-data:/var/lib/postgresql/data
+      - ./backend/sql:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5434:5432"
+
   frontend:
     build:
       context: ./frontend
@@ -26,8 +38,15 @@ services:
       - ./backend/src:/app/src
     env_file:
       - .env
+    environment:
+      - DATABASE_URL=postgresql://yuna_admin:yuna_admin_local@db:5432/yuna_admin
+    depends_on:
+      - db
     develop:
       watch:
         - action: sync+restart
           path: ./backend/src
           target: /app/src
+
+volumes:
+  dev-db-data:
