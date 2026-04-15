@@ -18,6 +18,7 @@ function forwardError(res: Response, err: unknown) {
 
 const LIST_QUERY_KEYS = ["page", "limit", "sort", "order"];
 const EPISODE_FILTERS = ["spatial", "depth", "subject_key"];
+const ESK_FILTERS = ["spatial", "subject_key"];
 const FACT_FILTERS = ["fact_type", "domain", "source"];
 const SITUATION_FILTERS = ["status", "depth", "spatial", "subject_key"];
 
@@ -72,6 +73,54 @@ router.patch("/episodes/:id", async (req, res) => {
 router.delete("/episodes/:id", async (req, res) => {
   try {
     const data = await yunaApi(`/api/admin/memory/episodes/${req.params.id}`, {
+      method: "DELETE",
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+// ───────── event_specific_knowledge ─────────
+
+router.get("/event-specific", async (req, res) => {
+  try {
+    const qs = buildQs(req, ESK_FILTERS);
+    const data = await yunaApi(`/api/admin/memory/event-specific${qs ? `?${qs}` : ""}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.get("/event-specific/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/event-specific/${req.params.id}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.post("/event-specific", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/event-specific`, {
+      method: "POST",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.status(201).json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.patch("/event-specific/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/event-specific/${req.params.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.delete("/event-specific/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/event-specific/${req.params.id}`, {
       method: "DELETE",
     });
     res.json(data);
