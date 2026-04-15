@@ -10,6 +10,7 @@ import {
 export interface NavChild {
   href: string;
   label: string;
+  children?: NavChild[];
 }
 
 export interface NavItem {
@@ -50,7 +51,13 @@ export const NAV: NavItem[] = [
     children: [
       { href: "/yuna/goals", label: "Goals" },
       { href: "/yuna/thoughts", label: "Thoughts" },
-      { href: "/yuna/memory", label: "Memory" },
+      {
+        href: "/yuna/memory",
+        label: "Memory",
+        children: [
+          { href: "/yuna/memory/situations", label: "Situations" },
+        ],
+      },
     ],
   },
   { href: "/settings", label: "Settings", icon: <SettingsIcon /> },

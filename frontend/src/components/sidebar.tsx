@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { NAV, type NavItem } from "./nav-config";
+import { NAV, type NavItem, type NavChild } from "./nav-config";
 import { LogoutIcon } from "./icons";
 
 export interface SidebarProps {
@@ -25,6 +25,9 @@ export function Sidebar({ open = false }: SidebarProps) {
     item.href === "/"
       ? pathname === "/"
       : pathname === item.href || pathname.startsWith(item.href + "/");
+
+  const isInChildSection = (child: NavChild) =>
+    pathname === child.href || pathname.startsWith(child.href + "/");
 
   const logout = () => {
     localStorage.removeItem("admin_token");
@@ -79,19 +82,43 @@ export function Sidebar({ open = false }: SidebarProps) {
               {showChildren && (
                 <div className="mt-0.5 mb-1 ml-5 pl-4 border-l border-border flex flex-col gap-0.5">
                   {item.children!.map((child) => {
-                    const childActive = isExact(child.href);
+                    const childExact = isExact(child.href);
+                    const childInSection = isInChildSection(child);
+                    const showGrandchildren =
+                      child.children && child.children.length > 0 && childInSection;
                     return (
-                      <Link
-                        key={child.href}
-                        href={child.href}
-                        className={`flex items-center h-8 px-2 rounded-md text-sm whitespace-nowrap transition ${
-                          childActive
-                            ? "text-accent"
-                            : "text-text-muted hover:text-text"
-                        }`}
-                      >
-                        {child.label}
-                      </Link>
+                      <div key={child.href}>
+                        <Link
+                          href={child.href}
+                          className={`flex items-center h-8 px-2 rounded-md text-sm whitespace-nowrap transition ${
+                            childExact
+                              ? "text-accent"
+                              : "text-text-muted hover:text-text"
+                          }`}
+                        >
+                          {child.label}
+                        </Link>
+                        {showGrandchildren && (
+                          <div className="mt-0.5 mb-1 ml-3 pl-3 border-l border-border flex flex-col gap-0.5">
+                            {child.children!.map((gc) => {
+                              const gcActive = isExact(gc.href);
+                              return (
+                                <Link
+                                  key={gc.href}
+                                  href={gc.href}
+                                  className={`flex items-center h-7 px-2 rounded-md text-xs whitespace-nowrap transition ${
+                                    gcActive
+                                      ? "text-accent"
+                                      : "text-text-muted hover:text-text"
+                                  }`}
+                                >
+                                  {gc.label}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
