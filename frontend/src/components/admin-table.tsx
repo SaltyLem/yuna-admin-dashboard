@@ -101,6 +101,22 @@ export function AdminTable<T>({
             </tr>
           </thead>
           <tbody>
+            {loading && rows.length === 0 && (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="py-12 text-center"
+                >
+                  <div className="inline-flex items-center gap-2 text-text-muted">
+                    <span
+                      className="h-4 w-4 border-2 border-text-muted border-t-transparent rounded-full animate-spin"
+                      aria-hidden
+                    />
+                    <span className="text-sm">Loading…</span>
+                  </div>
+                </td>
+              </tr>
+            )}
             {!loading && rows.length === 0 && (
               <tr>
                 <td
