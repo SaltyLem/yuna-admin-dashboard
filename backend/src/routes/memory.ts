@@ -19,6 +19,7 @@ function forwardError(res: Response, err: unknown) {
 const LIST_QUERY_KEYS = ["page", "limit", "sort", "order"];
 const EPISODE_FILTERS = ["spatial", "depth", "subject_key"];
 const ESK_FILTERS = ["spatial", "subject_key"];
+const GE_FILTERS = ["dominant_subject_key"];
 const FACT_FILTERS = ["fact_type", "domain", "source"];
 const SITUATION_FILTERS = ["status", "depth", "spatial", "subject_key"];
 
@@ -121,6 +122,54 @@ router.patch("/event-specific/:id", async (req, res) => {
 router.delete("/event-specific/:id", async (req, res) => {
   try {
     const data = await yunaApi(`/api/admin/memory/event-specific/${req.params.id}`, {
+      method: "DELETE",
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+// ───────── general_events ─────────
+
+router.get("/general-events", async (req, res) => {
+  try {
+    const qs = buildQs(req, GE_FILTERS);
+    const data = await yunaApi(`/api/admin/memory/general-events${qs ? `?${qs}` : ""}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.get("/general-events/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/general-events/${req.params.id}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.post("/general-events", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/general-events`, {
+      method: "POST",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.status(201).json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.patch("/general-events/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/general-events/${req.params.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.delete("/general-events/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/general-events/${req.params.id}`, {
       method: "DELETE",
     });
     res.json(data);
