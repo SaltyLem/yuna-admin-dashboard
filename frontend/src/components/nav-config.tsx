@@ -55,6 +55,7 @@ export const NAV: NavItem[] = [
       { href: "/yuna/hypotheses", label: "Hypotheses" },
       { href: "/yuna/thoughts", label: "Thoughts" },
       { href: "/yuna/pending-actions", label: "Pending actions" },
+      { href: "/yuna/persons", label: "Persons" },
       {
         href: "/yuna/memory",
         label: "Memory",
