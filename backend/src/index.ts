@@ -12,6 +12,8 @@ import immediateRulesRoutes from "./routes/immediate-rules.js";
 import hypothesesRoutes from "./routes/hypotheses.js";
 import stateRoutes from "./routes/state.js";
 import pendingActionsRoutes from "./routes/pending-actions.js";
+import cycleBlocksRoutes from "./routes/cycle-blocks.js";
+import apiUsageRoutes from "./routes/api-usage.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
 import { createServer } from "http";
@@ -105,6 +107,8 @@ app.use("/immediate-rules", immediateRulesRoutes);
 app.use("/hypotheses", hypothesesRoutes);
 app.use("/state", stateRoutes);
 app.use("/pending-actions", pendingActionsRoutes);
+app.use("/cycle-blocks", cycleBlocksRoutes);
+app.use("/api-usage", apiUsageRoutes);
 
 // ── WebSocket (認証付き) ──
 const wss = new WebSocketServer({ server, path: "/ws" });
