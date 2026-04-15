@@ -17,7 +17,7 @@ function forwardError(res: Response, err: unknown) {
 }
 
 const LIST_QUERY_KEYS = ["page", "limit", "sort", "order"];
-const EPISODE_FILTERS: string[] = [];
+const EPISODE_FILTERS = ["spatial", "depth", "subject_key"];
 const FACT_FILTERS = ["fact_type", "domain", "source"];
 const SITUATION_FILTERS = ["status", "depth", "spatial", "subject_key"];
 
@@ -36,6 +36,44 @@ router.get("/episodes", async (req, res) => {
   try {
     const qs = buildQs(req, EPISODE_FILTERS);
     const data = await yunaApi(`/api/admin/memory/episodes${qs ? `?${qs}` : ""}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.get("/episodes/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/episodes/${req.params.id}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.post("/episodes", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/episodes`, {
+      method: "POST",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.status(201).json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.patch("/episodes/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/episodes/${req.params.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.delete("/episodes/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/episodes/${req.params.id}`, {
+      method: "DELETE",
+    });
     res.json(data);
   } catch (err) { forwardError(res, err); }
 });
