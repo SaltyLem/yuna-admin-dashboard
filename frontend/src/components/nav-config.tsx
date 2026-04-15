@@ -57,6 +57,7 @@ export const NAV: NavItem[] = [
         children: [
           { href: "/yuna/memory/situations", label: "Situations" },
           { href: "/yuna/memory/episodes", label: "Episodes" },
+          { href: "/yuna/memory/event-specific", label: "Event-specific" },
         ],
       },
     ],
