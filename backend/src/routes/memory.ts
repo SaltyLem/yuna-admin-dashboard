@@ -17,6 +17,7 @@ function forwardError(res: Response, err: unknown) {
 }
 
 const LIST_QUERY_KEYS = ["page", "limit", "sort", "order"];
+const EVENT_FILTERS = ["category", "event_type", "subject_key", "processed", "spatial"];
 const EPISODE_FILTERS = ["spatial", "depth", "subject_key"];
 const ESK_FILTERS = ["spatial", "subject_key"];
 const GE_FILTERS = ["dominant_subject_key"];
@@ -31,6 +32,23 @@ function buildQs(req: Request, extraKeys: string[]): string {
   }
   return qs.toString();
 }
+
+// ───────── system_events (raw substrate) ─────────
+
+router.get("/events", async (req, res) => {
+  try {
+    const qs = buildQs(req, EVENT_FILTERS);
+    const data = await yunaApi(`/api/admin/memory/events${qs ? `?${qs}` : ""}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.get("/events/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/events/${req.params.id}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
 
 // ───────── episodes (v2) ─────────
 
