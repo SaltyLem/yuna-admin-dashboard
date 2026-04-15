@@ -8,6 +8,8 @@ import aapRoutes from "./routes/additional-auto-play.js";
 import programsRoutes from "./routes/programs.js";
 import goalsRoutes from "./routes/goals.js";
 import memoryRoutes from "./routes/memory.js";
+import immediateRulesRoutes from "./routes/immediate-rules.js";
+import hypothesesRoutes from "./routes/hypotheses.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
 import { createServer } from "http";
@@ -97,6 +99,8 @@ app.use("/auto-reply", autoReplyRoutes);
 app.use("/additional-auto-play", aapRoutes);
 app.use("/goals", goalsRoutes);
 app.use("/memory", memoryRoutes);
+app.use("/immediate-rules", immediateRulesRoutes);
+app.use("/hypotheses", hypothesesRoutes);
 
 // ── WebSocket (認証付き) ──
 const wss = new WebSocketServer({ server, path: "/ws" });
