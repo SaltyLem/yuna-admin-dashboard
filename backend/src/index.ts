@@ -10,6 +10,7 @@ import goalsRoutes from "./routes/goals.js";
 import memoryRoutes from "./routes/memory.js";
 import immediateRulesRoutes from "./routes/immediate-rules.js";
 import hypothesesRoutes from "./routes/hypotheses.js";
+import stateRoutes from "./routes/state.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
 import { createServer } from "http";
@@ -101,6 +102,7 @@ app.use("/goals", goalsRoutes);
 app.use("/memory", memoryRoutes);
 app.use("/immediate-rules", immediateRulesRoutes);
 app.use("/hypotheses", hypothesesRoutes);
+app.use("/state", stateRoutes);
 
 // ── WebSocket (認証付き) ──
 const wss = new WebSocketServer({ server, path: "/ws" });
