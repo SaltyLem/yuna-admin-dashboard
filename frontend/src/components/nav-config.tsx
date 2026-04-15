@@ -49,6 +49,7 @@ export const NAV: NavItem[] = [
     label: "YUNA",
     icon: <BrainIcon />,
     children: [
+      { href: "/yuna/state", label: "Current state" },
       { href: "/yuna/goals", label: "Goals" },
       { href: "/yuna/immediate-rules", label: "Immediate rules" },
       { href: "/yuna/hypotheses", label: "Hypotheses" },
