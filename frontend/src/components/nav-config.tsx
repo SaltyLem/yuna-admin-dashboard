@@ -59,6 +59,7 @@ export const NAV: NavItem[] = [
           { href: "/yuna/memory/episodes", label: "Episodes" },
           { href: "/yuna/memory/event-specific", label: "Event-specific" },
           { href: "/yuna/memory/general-events", label: "General events" },
+          { href: "/yuna/memory/semantic-facts", label: "Semantic facts" },
         ],
       },
     ],
