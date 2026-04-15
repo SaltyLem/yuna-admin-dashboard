@@ -186,6 +186,35 @@ router.get("/semantic-facts", async (req, res) => {
   } catch (err) { forwardError(res, err); }
 });
 
+router.get("/semantic-facts/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/semantic-facts/${req.params.id}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.post("/semantic-facts", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/semantic-facts`, {
+      method: "POST",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.status(201).json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.patch("/semantic-facts/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/semantic-facts/${req.params.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
 router.delete("/semantic-facts/:id", async (req, res) => {
   try {
     const data = await yunaApi(`/api/admin/memory/semantic-facts/${req.params.id}`, {
