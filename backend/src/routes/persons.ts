@@ -1,7 +1,17 @@
 import { Router, Request, Response } from "express";
 import { query } from "../db/client.js";
+import { yunaApi, YunaApiError } from "../yuna-api.js";
 
 const router = Router();
+
+function forwardError(res: Response, err: unknown) {
+  if (err instanceof YunaApiError) {
+    res.status(err.status).json({ error: err.message });
+  } else {
+    console.error("[persons] upstream error:", err instanceof Error ? err.message : err);
+    res.status(502).json({ error: "Upstream error" });
+  }
+}
 
 router.get("/search", async (req: Request, res: Response) => {
   const q = String(req.query.q ?? "");
@@ -49,6 +59,39 @@ router.get("/search", async (req: Request, res: Response) => {
   } catch (err) {
     res.status(500).json({ error: "Search failed" });
   }
+});
+
+// ───────── yuna-api proxy (admin CRUD on persons table) ─────────
+
+router.get("/", async (req: Request, res: Response) => {
+  try {
+    const qs = new URLSearchParams();
+    for (const k of ["type", "page", "limit", "sort", "order"]) {
+      const v = req.query[k];
+      if (typeof v === "string") qs.set(k, v);
+    }
+    const path = `/api/admin/persons${qs.toString() ? `?${qs}` : ""}`;
+    res.json(await yunaApi(path));
+  } catch (err) { forwardError(res, err); }
+});
+
+router.get("/:id", async (req, res) => {
+  // Avoid swallowing /search (handled above).
+  if (req.params.id === "search") return res.status(404).json({ error: "Not found" });
+  try {
+    res.json(await yunaApi(`/api/admin/persons/${encodeURIComponent(req.params.id)}`));
+  } catch (err) { forwardError(res, err); }
+});
+
+router.patch("/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/persons/${encodeURIComponent(req.params.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
 });
 
 export default router;
