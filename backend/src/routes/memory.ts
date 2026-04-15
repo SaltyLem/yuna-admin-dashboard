@@ -19,6 +19,7 @@ function forwardError(res: Response, err: unknown) {
 const LIST_QUERY_KEYS = ["page", "limit", "sort", "order"];
 const EPISODE_FILTERS: string[] = [];
 const FACT_FILTERS = ["fact_type", "domain", "source"];
+const SITUATION_FILTERS = ["status", "depth", "spatial", "subject_key"];
 
 function buildQs(req: Request, extraKeys: string[]): string {
   const qs = new URLSearchParams();
@@ -52,6 +53,54 @@ router.get("/semantic-facts", async (req, res) => {
 router.delete("/semantic-facts/:id", async (req, res) => {
   try {
     const data = await yunaApi(`/api/admin/memory/semantic-facts/${req.params.id}`, {
+      method: "DELETE",
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+// ───────── situations (v2) ─────────
+
+router.get("/situations", async (req, res) => {
+  try {
+    const qs = buildQs(req, SITUATION_FILTERS);
+    const data = await yunaApi(`/api/admin/memory/situations${qs ? `?${qs}` : ""}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.get("/situations/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/situations/${req.params.id}`);
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.post("/situations", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/situations`, {
+      method: "POST",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.status(201).json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.patch("/situations/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/situations/${req.params.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+    });
+    res.json(data);
+  } catch (err) { forwardError(res, err); }
+});
+
+router.delete("/situations/:id", async (req, res) => {
+  try {
+    const data = await yunaApi(`/api/admin/memory/situations/${req.params.id}`, {
       method: "DELETE",
     });
     res.json(data);
