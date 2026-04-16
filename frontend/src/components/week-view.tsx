@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
 
-import { fmtTime, fmtDate, matchesDate, slotColor, DAYS, type Schedule } from "./schedule-utils";
+import { fmtTime, fmtDate, matchesDate, DAYS, type Schedule } from "./schedule-utils";
 
 interface WeekViewProps {
   weekStart: Date;
@@ -12,13 +12,19 @@ interface WeekViewProps {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const SLOTS_PER_HOUR = 4; // 15分刻み
-const SLOT_HEIGHT = 12; // px（1セル 15分 = 12px, 1時間 = 48px）
+const SLOTS_PER_HOUR = 4;
+const SLOT_HEIGHT = 12;
+const CHANNELS = ["ja", "en"] as const;
 
 interface DragState {
   date: string;
-  startSlot: number; // 0-95 (15分単位)
+  startSlot: number;
   endSlot: number;
+}
+
+function channelColor(channel: string, enabled: boolean): string {
+  if (!enabled) return "bg-panel-2 text-text-muted line-through";
+  return channel === "ja" ? "bg-red-900/60 text-red-300" : "bg-blue-900/60 text-blue-300";
 }
 
 export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDragCreate }: WeekViewProps) {
@@ -58,7 +64,6 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
     if (drag && dragStartRef.current) {
       const startMinutes = drag.startSlot * 15;
       const endMinutes = (drag.endSlot + 1) * 15;
-      // 15分以上の選択のみ許可、それ以下はクリック扱い
       if (endMinutes - startMinutes >= 15) {
         onDragCreate(drag.date, startMinutes, endMinutes);
       } else {
@@ -71,8 +76,8 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
 
   return (
     <div className="overflow-x-auto" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
-      <div className="relative grid grid-cols-[3rem_repeat(7,1fr)] min-w-[700px] select-none">
-        {/* Header */}
+      <div className="relative grid grid-cols-[3rem_repeat(7,1fr)] min-w-[800px] select-none">
+        {/* Header — day + ja|en sub-labels */}
         <div className="border-b border-border" />
         {dates.map((d) => {
           const date = fmtDate(d);
@@ -80,12 +85,17 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
           return (
             <div
               key={date}
-              className={`text-center text-xs py-2 border-b border-l border-border ${
+              className={`text-center text-xs py-1.5 border-b border-l border-border ${
                 isToday ? "text-text font-bold" : "text-text-muted"
               }`}
             >
               <div>{DAYS[d.getDay()]}</div>
-              <div className={`text-lg ${isToday ? "text-text" : "text-text-soft"}`}>{d.getDate()}</div>
+              <div className={`text-lg leading-tight ${isToday ? "text-text" : "text-text-soft"}`}>{d.getDate()}</div>
+              <div className="flex justify-center gap-1 mt-0.5">
+                <span className="text-[10px] text-red-400 font-medium">JA</span>
+                <span className="text-[10px] text-text-faint">|</span>
+                <span className="text-[10px] text-blue-400 font-medium">EN</span>
+              </div>
             </div>
           );
         })}
@@ -98,16 +108,16 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
             </div>
             {dates.map((d) => {
               const date = fmtDate(d);
-              const daySchedules = schedules.filter(
-                (s) => matchesDate(s, date) && Math.floor(s.start_minutes / 60) === hour,
-              );
 
               return (
                 <div
                   key={`${date}-${hour}`}
                   className="h-12 border-b border-l border-border/50 relative"
                 >
-                  {/* 15分刻みの subdivision */}
+                  {/* Center divider between ja/en */}
+                  <div className="absolute top-0 bottom-0 left-1/2 w-px bg-border/30 z-[1]" />
+
+                  {/* 15-min drag slots (full width) */}
                   {[0, 1, 2, 3].map((q) => {
                     const slot = hour * SLOTS_PER_HOUR + q;
                     const isSelecting =
@@ -118,32 +128,41 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
                         className={`absolute left-0 right-0 cursor-pointer hover:bg-panel-hover/30 ${
                           isSelecting ? "bg-accent/30" : ""
                         } ${q > 0 ? "border-t border-border/30" : ""}`}
-                        style={{ top: `${q * SLOT_HEIGHT}px`, height: `${SLOT_HEIGHT}px` }}
+                        style={{ top: `${q * SLOT_HEIGHT}px`, height: `${SLOT_HEIGHT}px`, zIndex: 2 }}
                         onMouseDown={(e) => { e.preventDefault(); handleMouseDown(date, slot); }}
                         onMouseEnter={() => handleMouseEnter(date, slot)}
                       />
                     );
                   })}
 
-                  {/* 既存スケジュール */}
-                  {daySchedules.map((s) => {
-                    const durationMinutes = s.end_minutes - s.start_minutes;
-                    const topOffset = (s.start_minutes % 60) / 60;
-                    return (
-                      <div
-                        key={s.id}
-                        onClick={(e) => { e.stopPropagation(); onClickSlot(s); }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        className={`absolute left-0.5 right-0.5 rounded px-1 text-xs cursor-pointer truncate hover:brightness-125 transition ${slotColor(s)}`}
-                        style={{
-                          top: `${topOffset * 48}px`,
-                          height: `${(durationMinutes / 60) * 48}px`,
-                          zIndex: 10,
-                        }}
-                      >
-                        {fmtTime(s.start_minutes)} {s.label}
-                      </div>
+                  {/* Schedules — ja left half, en right half */}
+                  {CHANNELS.map((ch) => {
+                    const chSchedules = schedules.filter(
+                      (s) => s.channel === ch && matchesDate(s, date) && Math.floor(s.start_minutes / 60) === hour,
                     );
+                    const isLeft = ch === "ja";
+                    return chSchedules.map((s) => {
+                      const durationMinutes = s.end_minutes - s.start_minutes;
+                      const topOffset = (s.start_minutes % 60) / 60;
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={(e) => { e.stopPropagation(); onClickSlot(s); }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          className={`absolute rounded px-0.5 text-[10px] leading-tight cursor-pointer truncate hover:brightness-125 transition ${channelColor(s.channel, s.enabled)}`}
+                          style={{
+                            top: `${topOffset * 48}px`,
+                            height: `${Math.max((durationMinutes / 60) * 48, 10)}px`,
+                            left: isLeft ? "1px" : "50%",
+                            right: isLeft ? "50%" : "1px",
+                            zIndex: 10,
+                          }}
+                          title={`[${ch.toUpperCase()}] ${fmtTime(s.start_minutes)}-${fmtTime(s.end_minutes)} ${s.label}`}
+                        >
+                          {fmtTime(s.start_minutes)} {s.label}
+                        </div>
+                      );
+                    });
                   })}
                 </div>
               );
@@ -151,14 +170,13 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
           </React.Fragment>
         ))}
 
-        {/* 現在時刻ライン */}
+        {/* Current time indicator */}
         {(() => {
           const todayStr = fmtDate(now);
           const todayCol = dates.findIndex((d) => fmtDate(d) === todayStr);
           if (todayCol < 0) return null;
           const minutes = now.getHours() * 60 + now.getMinutes();
-          // header 高さ（py-2 + 2行分）を概算
-          const HEADER_H = 60;
+          const HEADER_H = 68;
           const topPx = HEADER_H + (minutes / 60) * 48;
           return (
             <div
