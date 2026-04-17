@@ -251,40 +251,65 @@ export default function LiveStreamMonitorPage() {
       <Header connected={connected} loading={loading} nowMs={now} />
       <TotalsBar byChannel={byChannel} yunaState={yunaState} />
 
-      {/* main grid fills remaining height; 3 equal rows */}
-      <div className="relative z-10 flex-1 min-h-0 grid grid-cols-12 grid-rows-3 gap-2">
-        {/* Row 1 */}
-        <PanelFrame className="col-span-4 min-h-0" title="JA Activity" accent={CHANNEL_COLOR.ja}>
-          <ActivityChart events={byChannel.ja?.events ?? []} nowMs={now} color={CHANNEL_COLOR.ja} />
-        </PanelFrame>
-        <PanelFrame className="col-span-4 min-h-0" title="Session Core" accent="#a855f7">
-          <HeroCore byChannel={byChannel} yunaState={yunaState} nowMs={now} />
-        </PanelFrame>
-        <PanelFrame className="col-span-4 min-h-0" title="EN Activity" accent={CHANNEL_COLOR.en}>
-          <ActivityChart events={byChannel.en?.events ?? []} nowMs={now} color={CHANNEL_COLOR.en} />
-        </PanelFrame>
+      {/* main content: 3 sections stacked vertically */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col gap-2">
 
-        {/* Row 2 */}
-        <PanelFrame className="col-span-3 min-h-0" title="JA Pulse" accent={CHANNEL_COLOR.ja}>
-          <ChannelRadar channel="ja" data={byChannel.ja} nowMs={now} />
-        </PanelFrame>
-        <PanelFrame className="col-span-6 min-h-0" title="Theme Timeline">
+        {/* SECTION A — hero centered with activity on left, pulse radars above/below,
+            EN activity on right. 12-col × 2-row grid. */}
+        <div className="flex-[1.35] min-h-0 grid grid-cols-12 grid-rows-2 gap-2">
+          <PanelFrame
+            className="col-start-1 col-end-4 row-start-1 row-end-2"
+            title="JA Activity" accent={CHANNEL_COLOR.ja}
+          >
+            <ActivityChart events={byChannel.ja?.events ?? []} nowMs={now} color={CHANNEL_COLOR.ja} />
+          </PanelFrame>
+
+          <PanelFrame
+            className="col-start-1 col-end-4 row-start-2 row-end-3"
+            title="JA Pulse" accent={CHANNEL_COLOR.ja}
+          >
+            <ChannelRadar channel="ja" data={byChannel.ja} nowMs={now} />
+          </PanelFrame>
+
+          <PanelFrame
+            className="col-start-4 col-end-10 row-start-1 row-end-3"
+            title="Session Core" accent="#a855f7"
+          >
+            <HeroCore byChannel={byChannel} yunaState={yunaState} nowMs={now} />
+          </PanelFrame>
+
+          <PanelFrame
+            className="col-start-10 col-end-13 row-start-1 row-end-2"
+            title="EN Activity" accent={CHANNEL_COLOR.en}
+          >
+            <ActivityChart events={byChannel.en?.events ?? []} nowMs={now} color={CHANNEL_COLOR.en} />
+          </PanelFrame>
+
+          <PanelFrame
+            className="col-start-10 col-end-13 row-start-2 row-end-3"
+            title="EN Pulse" accent={CHANNEL_COLOR.en}
+          >
+            <ChannelRadar channel="en" data={byChannel.en} nowMs={now} />
+          </PanelFrame>
+        </div>
+
+        {/* SECTION B — theme timeline, thin strip across full width */}
+        <PanelFrame className="shrink-0" title="Theme Timeline" accent="#fbbf24">
           <DualThemeTimeline byChannel={byChannel} />
         </PanelFrame>
-        <PanelFrame className="col-span-3 min-h-0" title="EN Pulse" accent={CHANNEL_COLOR.en}>
-          <ChannelRadar channel="en" data={byChannel.en} nowMs={now} />
-        </PanelFrame>
 
-        {/* Row 3 */}
-        <PanelFrame className="col-span-4 min-h-0" title="Comments" accent="#38bdf8">
-          <CommentsFeed byChannel={byChannel} />
-        </PanelFrame>
-        <PanelFrame className="col-span-4 min-h-0" title="YUNA Utterances" accent="#c084fc">
-          <UtterancesFeed byChannel={byChannel} />
-        </PanelFrame>
-        <PanelFrame className="col-span-4 min-h-0" title="Director" accent="#fb7185">
-          <DirectorList byChannel={byChannel} />
-        </PanelFrame>
+        {/* SECTION C — three feeds, equal width */}
+        <div className="flex-1 min-h-0 grid grid-cols-12 gap-2">
+          <PanelFrame className="col-span-4 min-h-0" title="Comments" accent="#38bdf8">
+            <CommentsFeed byChannel={byChannel} />
+          </PanelFrame>
+          <PanelFrame className="col-span-4 min-h-0" title="YUNA Utterances" accent="#c084fc">
+            <UtterancesFeed byChannel={byChannel} />
+          </PanelFrame>
+          <PanelFrame className="col-span-4 min-h-0" title="Director" accent="#fb7185">
+            <DirectorList byChannel={byChannel} />
+          </PanelFrame>
+        </div>
       </div>
     </div>
   );
@@ -376,12 +401,6 @@ function PanelFrame({
       ].join(" ")}
       style={{ boxShadow: `0 0 24px -10px ${accent}55, 0 0 1px ${accent}55 inset` }}
     >
-      {/* corner brackets */}
-      <CornerBracket pos="tl" color={accent} />
-      <CornerBracket pos="tr" color={accent} />
-      <CornerBracket pos="bl" color={accent} />
-      <CornerBracket pos="br" color={accent} />
-
       {title && (
         <div className="flex items-center gap-2 px-3 pt-2 pb-1 shrink-0">
           <span className="inline-block h-1 w-1 rounded-full" style={{ background: accent, boxShadow: `0 0 8px ${accent}` }} />
@@ -396,27 +415,6 @@ function PanelFrame({
       )}
       <div className="flex-1 min-h-0 px-3 pb-3 pt-1 overflow-hidden">{children}</div>
     </section>
-  );
-}
-
-function CornerBracket({
-  pos, color,
-}: {
-  pos: "tl" | "tr" | "bl" | "br";
-  color: string;
-}) {
-  const common = "pointer-events-none absolute h-3 w-3";
-  const positions: Record<typeof pos, string> = {
-    tl: "top-1 left-1 border-t border-l",
-    tr: "top-1 right-1 border-t border-r",
-    bl: "bottom-1 left-1 border-b border-l",
-    br: "bottom-1 right-1 border-b border-r",
-  };
-  return (
-    <span
-      className={`${common} ${positions[pos]}`}
-      style={{ borderColor: color, filter: `drop-shadow(0 0 3px ${color})` }}
-    />
   );
 }
 
