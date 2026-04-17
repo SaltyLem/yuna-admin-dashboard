@@ -246,8 +246,6 @@ export default function LiveStreamMonitorPage() {
     <div className="relative h-full flex flex-col gap-2 overflow-hidden">
       <SciBg />
 
-      <TotalsBar byChannel={byChannel} yunaState={yunaState} connected={connected} loading={loading} nowMs={now} />
-
       {/* main: 2-column split. Left = 4 stacked chart panels. Right = hero + timeline + feeds. */}
       <div className="relative z-10 flex-1 min-h-0 grid grid-cols-12 gap-2">
 
@@ -267,10 +265,16 @@ export default function LiveStreamMonitorPage() {
           </PanelFrame>
         </div>
 
-        {/* RIGHT — hero + timeline + feeds */}
+        {/* RIGHT — hero (with embedded KPI strip) + timeline + feeds */}
         <div className="col-span-8 xl:col-span-9 flex flex-col gap-2 min-h-0">
-          <PanelFrame className="flex-[1.2]" title="Session Core" accent="#a855f7">
-            <HeroCore byChannel={byChannel} yunaState={yunaState} nowMs={now} />
+          <PanelFrame className="flex-[1.3]" title="Session Core" accent="#a855f7">
+            <HeroCore
+              byChannel={byChannel}
+              yunaState={yunaState}
+              connected={connected}
+              loading={loading}
+              nowMs={now}
+            />
           </PanelFrame>
 
           <PanelFrame className="shrink-0" title="Theme Timeline" accent="#fbbf24">
@@ -398,78 +402,16 @@ function PanelFrame({
 }
 
 /* ============================================================= */
-/*  Totals bar                                                    */
+/*  Hero core: dual session rings + emotion                       */
 /* ============================================================= */
 
-function TotalsBar({
+function HeroCore({
   byChannel, yunaState, connected, loading, nowMs,
 }: {
   byChannel: Record<Channel, ChannelLive | null>;
   yunaState: YunaState | null;
   connected: boolean;
   loading: boolean;
-  nowMs: number;
-}) {
-  const counts = (ch: Channel) => byChannel[ch]?.monitor?.counts;
-  const total = (key: keyof Counts) =>
-    safeNum(counts("ja")?.[key]) + safeNum(counts("en")?.[key]);
-  const emotion = yunaState?.emotion?.category ?? "—";
-  const todayCost = yunaState?.todayCostUsd;
-
-  return (
-    <div className="relative z-10 flex items-stretch gap-2">
-      <div className="grow grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        <Kpi label="Comments" value={total("comment_count")} accent="#22d3ee" />
-        <Kpi label="Viewers"  value={total("unique_viewers")} accent="#22d3ee" />
-        <Kpi label="Superchats" value={total("superchat_count")} accent="#fbbf24" />
-        <Kpi label="Super $"  value={`$${(safeNum(counts("ja")?.superchat_total) + safeNum(counts("en")?.superchat_total)).toFixed(0)}`} accent="#fbbf24" />
-        <Kpi label="Emotion"  value={emotion} accent="#e879f9" />
-        <Kpi label="Today $"  value={todayCost == null ? "—" : `$${safeNum(todayCost).toFixed(2)}`} accent="#34d399" />
-      </div>
-      <div className="flex flex-col items-end justify-center gap-0.5 pl-2 min-w-[120px]">
-        <div className="flex items-center gap-1.5 text-[10px]">
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-cyan-400 animate-pulse" : "bg-red-500"}`}
-            style={connected ? { boxShadow: "0 0 8px #22d3ee" } : {}} />
-          <span className={connected ? "text-cyan-300" : "text-red-400"}>
-            {connected ? "WS ONLINE" : "WS OFFLINE"}
-          </span>
-          {loading && <span className="text-text-faint">·</span>}
-        </div>
-        <div className="text-[11px] tabular-nums text-text-muted">
-          {new Date(nowMs).toLocaleTimeString()}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Kpi({
-  label, value, accent,
-}: { label: string; value: string | number; accent: string }) {
-  return (
-    <PanelFrame accent={accent}>
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">{label}</div>
-          <div className="mt-0.5 text-xl font-bold tabular-nums" style={{ color: accent, textShadow: `0 0 10px ${accent}66` }}>
-            {value}
-          </div>
-        </div>
-        <div className="h-8 w-1 rounded-full" style={{ background: `linear-gradient(180deg, ${accent}, transparent)` }} />
-      </div>
-    </PanelFrame>
-  );
-}
-
-/* ============================================================= */
-/*  Hero core: dual session rings + emotion                       */
-/* ============================================================= */
-
-function HeroCore({
-  byChannel, yunaState, nowMs,
-}: {
-  byChannel: Record<Channel, ChannelLive | null>;
-  yunaState: YunaState | null;
   nowMs: number;
 }) {
   const ring = (ch: Channel) => {
@@ -487,7 +429,17 @@ function HeroCore({
   const valence = safeNum(yunaState?.emotion?.valence);
   const arousal = safeNum(yunaState?.emotion?.arousal);
   const category = yunaState?.emotion?.category ?? "—";
-  const totalComments = safeNum(byChannel.ja?.monitor?.counts?.comment_count) + safeNum(byChannel.en?.monitor?.counts?.comment_count);
+
+  // Aggregated KPIs that used to live in the TotalsBar row (removed).
+  const counts = (ch: Channel) => byChannel[ch]?.monitor?.counts;
+  const total = (key: keyof Counts) =>
+    safeNum(counts("ja")?.[key]) + safeNum(counts("en")?.[key]);
+  const totalComments = total("comment_count");
+  const totalViewers = total("unique_viewers");
+  const totalSuper = total("superchat_count");
+  const totalSuperUsd =
+    safeNum(counts("ja")?.superchat_total) + safeNum(counts("en")?.superchat_total);
+  const todayCost = yunaState?.todayCostUsd;
 
   // SVG arc (viewBox coords; rendered responsively)
   const size = 240;
@@ -496,8 +448,26 @@ function HeroCore({
   const stroke = 8;
 
   return (
-    <div className="flex flex-col items-center h-full gap-2">
-      <div className="relative flex-1 min-h-0 aspect-square">
+    <div className="flex flex-col h-full gap-2">
+      {/* top utility row: WS + clock */}
+      <div className="shrink-0 flex items-center justify-end gap-3 text-[10px]">
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-cyan-400 animate-pulse" : "bg-red-500"}`}
+            style={connected ? { boxShadow: "0 0 8px #22d3ee" } : {}}
+          />
+          <span className={connected ? "text-cyan-300" : "text-red-400"}>
+            {connected ? "WS ONLINE" : "WS OFFLINE"}
+          </span>
+          {loading && <span className="text-text-faint">·</span>}
+        </div>
+        <div className="tabular-nums text-text-muted">
+          {new Date(nowMs).toLocaleTimeString()}
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 flex items-center justify-center">
+        <div className="relative h-full aspect-square">
         <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} preserveAspectRatio="xMidYMid meet">
           <defs>
             <linearGradient id="ringJa" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -566,10 +536,11 @@ function HeroCore({
 
         {/* orbiting particles (purely decorative) */}
         <OrbitingDots />
+        </div>
       </div>
 
-      {/* legend */}
-      <div className="mt-2 grid grid-cols-2 gap-2 w-full text-[11px]">
+      {/* JA/EN legend */}
+      <div className="shrink-0 grid grid-cols-2 gap-2 text-[11px]">
         {(["ja", "en"] as Channel[]).map(ch => {
           const r = ch === "ja" ? ja : en;
           const color = CHANNEL_COLOR[ch];
@@ -586,6 +557,30 @@ function HeroCore({
             </div>
           );
         })}
+      </div>
+
+      {/* consolidated KPI strip (was the separate top totals row) */}
+      <div className="shrink-0 grid grid-cols-3 md:grid-cols-6 gap-px bg-white/5 rounded-md overflow-hidden border border-white/5">
+        <MiniKpi label="Comments" value={totalComments}       accent="#22d3ee" />
+        <MiniKpi label="Viewers"  value={totalViewers}        accent="#22d3ee" />
+        <MiniKpi label="Super"    value={totalSuper}          accent="#fbbf24" />
+        <MiniKpi label="Super $"  value={`$${totalSuperUsd.toFixed(0)}`} accent="#fbbf24" />
+        <MiniKpi label="Emotion"  value={category}            accent="#e879f9" />
+        <MiniKpi label="Today $"  value={todayCost == null ? "—" : `$${safeNum(todayCost).toFixed(2)}`} accent="#34d399" />
+      </div>
+    </div>
+  );
+}
+
+function MiniKpi({ label, value, accent }: { label: string; value: string | number; accent: string }) {
+  return (
+    <div className="bg-[#0b1120]/90 px-2 py-1.5">
+      <div className="text-[9px] uppercase tracking-[0.15em] text-text-faint">{label}</div>
+      <div
+        className="mt-0.5 text-sm font-semibold tabular-nums truncate"
+        style={{ color: accent, textShadow: `0 0 8px ${accent}44` }}
+      >
+        {value}
       </div>
     </div>
   );
