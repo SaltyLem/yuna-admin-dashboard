@@ -61,7 +61,7 @@ export default function OllamaChatPage() {
 
   const newSession = () => {
     const session: Session = {
-      id: crypto.randomUUID(),
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
       title: "New Chat",
       model: DEFAULT_MODEL,
       messages: [],
@@ -89,7 +89,7 @@ export default function OllamaChatPage() {
 
     if (!session) {
       session = {
-        id: crypto.randomUUID(),
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
         title: input.slice(0, 30),
         model: DEFAULT_MODEL,
         messages: [],
