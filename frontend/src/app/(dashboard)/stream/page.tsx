@@ -253,28 +253,18 @@ export default function LiveStreamMonitorPage() {
 
         {/* TOP */}
         <div className="flex-[1.7] min-h-0 grid grid-cols-12 gap-2">
-          {/* Left: stats + two activity charts */}
-          <div className="col-span-5 grid grid-rows-3 gap-2 min-h-0">
-            <PanelFrame title="Status" accent="#a855f7">
-              <StatsPanel
-                byChannel={byChannel}
-                yunaState={yunaState}
-                connected={connected}
-                loading={loading}
-                nowMs={now}
-              />
-            </PanelFrame>
-            <PanelFrame title="JA Activity" accent={CHANNEL_COLOR.ja}>
-              <TimeframeChart channel="ja" kind="activity" color={CHANNEL_COLOR.ja} />
-            </PanelFrame>
-            <PanelFrame title="EN Activity" accent={CHANNEL_COLOR.en}>
-              <TimeframeChart channel="en" kind="activity" color={CHANNEL_COLOR.en} />
-            </PanelFrame>
-          </div>
+          <PanelFrame className="col-span-3" title="Status" accent="#a855f7">
+            <StatsPanel
+              byChannel={byChannel}
+              yunaState={yunaState}
+              connected={connected}
+              loading={loading}
+              nowMs={now}
+            />
+          </PanelFrame>
 
-          {/* Right: combined JA+EN concurrent viewers */}
-          <PanelFrame className="col-span-7" title="JA + EN 同時接続" accent="#e879f9">
-            <CombinedViewersChart />
+          <PanelFrame className="col-span-9" accent="#22d3ee">
+            <ChartsGallery />
           </PanelFrame>
         </div>
 
@@ -1013,6 +1003,151 @@ function Legend({ color, label }: { color: string; label: string }) {
       <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
       <span style={{ color }}>{label}</span>
     </div>
+  );
+}
+
+/* ============================================================= */
+/*  Charts gallery: mini rail (click to select) + big selected    */
+/* ============================================================= */
+
+type ChartId = "ja-activity" | "en-activity" | "viewers";
+
+interface ChartMeta {
+  id: ChartId;
+  label: string;
+  accent: string;
+}
+
+const CHARTS: ChartMeta[] = [
+  { id: "ja-activity", label: "JA Activity",     accent: CHANNEL_COLOR.ja },
+  { id: "en-activity", label: "EN Activity",     accent: CHANNEL_COLOR.en },
+  { id: "viewers",     label: "JA+EN 同時接続",   accent: "#e879f9" },
+];
+
+function ChartsGallery() {
+  const [selected, setSelected] = useState<ChartId>("viewers");
+
+  return (
+    <div className="flex h-full gap-2">
+      {/* Mini rail */}
+      <div className="shrink-0 w-32 flex flex-col gap-1.5">
+        {CHARTS.map((c) => (
+          <MiniChartTile
+            key={c.id}
+            chart={c}
+            selected={selected === c.id}
+            onClick={() => setSelected(c.id)}
+          />
+        ))}
+      </div>
+
+      {/* Big selected chart */}
+      <div className="flex-1 min-w-0">
+        {selected === "viewers" && <CombinedViewersChart />}
+        {selected === "ja-activity" && (
+          <TimeframeChart channel="ja" kind="activity" color={CHANNEL_COLOR.ja} />
+        )}
+        {selected === "en-activity" && (
+          <TimeframeChart channel="en" kind="activity" color={CHANNEL_COLOR.en} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiniChartTile({
+  chart, selected, onClick,
+}: {
+  chart: ChartMeta;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={[
+        "flex-1 min-h-0 rounded-md border px-2 py-1.5 text-left transition relative overflow-hidden",
+        selected ? "" : "hover:bg-white/[0.03]",
+      ].join(" ")}
+      style={{
+        background: selected ? `${chart.accent}14` : "#0b112066",
+        borderColor: selected ? `${chart.accent}99` : "#ffffff10",
+        boxShadow: selected ? `0 0 16px -4px ${chart.accent}88, 0 0 1px ${chart.accent}88 inset` : undefined,
+      }}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <span
+          className="text-[10px] font-semibold uppercase tracking-[0.15em]"
+          style={{ color: selected ? chart.accent : `${chart.accent}99` }}
+        >
+          {chart.label}
+        </span>
+        {selected && (
+          <span className="text-[8px] text-text-faint uppercase tracking-wider">viewing</span>
+        )}
+      </div>
+      <div className="h-10">
+        <MiniChartPreview chart={chart} />
+      </div>
+    </button>
+  );
+}
+
+/**
+ * Lightweight preview: single area, last 30 × 1m buckets, no axes or
+ * tooltip. Fetches its own data on a slow cadence (30s) since it's
+ * just a glance-at-shape thumbnail.
+ */
+function MiniChartPreview({ chart }: { chart: ChartMeta }) {
+  const [series, setSeries] = useState<Array<{ t: number; v: number }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchOnce() {
+      try {
+        if (chart.id === "viewers") {
+          const [ja, en] = await Promise.all([
+            apiFetch<ActivitySeriesResp>(`/stream/activity?channel=ja&kind=viewers&bucketMinutes=1&buckets=30`, { silent: true }),
+            apiFetch<ActivitySeriesResp>(`/stream/activity?channel=en&kind=viewers&bucketMinutes=1&buckets=30`, { silent: true }),
+          ]);
+          if (cancelled) return;
+          const enByT = new Map(en.series.map(s => [s.t, s]));
+          setSeries(ja.series.map(j => ({
+            t: j.t,
+            v: Number(j["avg"] ?? 0) + Number(enByT.get(j.t)?.["avg"] ?? 0),
+          })));
+        } else {
+          const channel = chart.id === "ja-activity" ? "ja" : "en";
+          const d = await apiFetch<ActivitySeriesResp>(
+            `/stream/activity?channel=${channel}&kind=activity&bucketMinutes=1&buckets=30`,
+            { silent: true },
+          );
+          if (cancelled) return;
+          setSeries(d.series.map(s => ({
+            t: s.t,
+            v: Number(s["comments"] ?? 0) + Number(s["utterances"] ?? 0),
+          })));
+        }
+      } catch { /* ignore */ }
+    }
+    void fetchOnce();
+    const h = setInterval(fetchOnce, 30_000);
+    return () => { cancelled = true; clearInterval(h); };
+  }, [chart.id]);
+
+  const gid = `mini-${chart.id}`;
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor={chart.accent} stopOpacity={0.7} />
+            <stop offset="100%" stopColor={chart.accent} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area type="monotone" dataKey="v" stroke={chart.accent} strokeWidth={1.2} fill={`url(#${gid})`} isAnimationActive={false} />
+      </AreaChart>
+    </ResponsiveContainer>
   );
 }
 
