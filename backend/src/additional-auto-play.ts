@@ -125,7 +125,7 @@ async function processQuickOnly(): Promise<void> {
     const delay = randomDelay();
     setTimeout(() => {
       const payload = buildPayload(viewer.name, viewer.author_channel_id, reaction.text);
-      void pub.publish("stream:comments", JSON.stringify(payload));
+      void pub.publish(`stream:${config.channel}:comments`, JSON.stringify(payload));
       console.log("[aap:always] " + viewer.name + ": " + reaction.text);
     }, delay);
   }
@@ -167,7 +167,7 @@ async function processSpeak(): Promise<void> {
     const delay = randomDelay();
     setTimeout(() => {
       const payload = buildPayload(viewer.name, viewer.author_channel_id, reaction.text);
-      void pub.publish("stream:comments", JSON.stringify(payload));
+      void pub.publish(`stream:${config.channel}:comments`, JSON.stringify(payload));
       console.log("[aap:quick] " + viewer.name + ": " + reaction.text + " (" + (delay / 1000).toFixed(0) + "s)");
     }, delay);
   }
@@ -180,7 +180,7 @@ async function processSpeak(): Promise<void> {
         const delay = randomDelay();
         setTimeout(() => {
           const payload = buildPayload(c.name, c.channelId, c.comment);
-          void pub.publish("stream:comments", JSON.stringify(payload));
+          void pub.publish(`stream:${config.channel}:comments`, JSON.stringify(payload));
           console.log("[aap:llm] " + c.name + ": " + c.comment.slice(0, 30) + " (" + (delay / 1000).toFixed(0) + "s)");
         }, delay);
       }

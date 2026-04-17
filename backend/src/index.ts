@@ -190,7 +190,10 @@ async function startRedisSubscriber(): Promise<void> {
     console.log("[redis-sub] connected to", REDIS_STREAM_URL);
   });
 
-  await sub.subscribe("stream:comments", "stream:status", "stream:speak");
+  await sub.subscribe(
+    "stream:ja:comments", "stream:ja:status", "stream:ja:speak",
+    "stream:en:comments", "stream:en:status", "stream:en:speak",
+  );
 
   sub.on("message", (channel, message) => {
     try {

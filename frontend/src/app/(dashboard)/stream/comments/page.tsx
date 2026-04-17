@@ -19,7 +19,7 @@ export default function CommentsPage() {
   const [comments, setComments] = useState<Comment[]>([]);
 
   const onMessage = useCallback((event: string, data: unknown) => {
-    if (event !== "stream:comments") return;
+    if (event !== "stream:ja:comments" && event !== "stream:en:comments") return;
     const c = data as Record<string, unknown>;
     setComments((prev) => {
       const id = String(c.id ?? Date.now());

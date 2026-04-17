@@ -136,7 +136,7 @@ async function generateAndPublish(): Promise<void> {
         amount: null,
       };
 
-      await pub.publish("stream:comments", JSON.stringify(payload));
+      await pub.publish(`stream:${config.channel}:comments`, JSON.stringify(payload));
       console.log("[auto-reply] " + viewer.name + ": " + c.comment.slice(0, 40));
     }
   } catch (err) {

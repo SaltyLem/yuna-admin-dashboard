@@ -37,7 +37,7 @@ router.post("/send", async (req: Request, res: Response) => {
 
   try {
     const pub = getPublisher();
-    await pub.publish("stream:comments", JSON.stringify(payload));
+    await pub.publish(`stream:${channel}:comments`, JSON.stringify(payload));
     res.json({ ok: true, id, authorChannelId: channelId });
   } catch (err) {
     res.status(500).json({ error: "Failed to publish comment" });
