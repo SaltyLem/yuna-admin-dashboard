@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
 
 const API_URL = process.env.NEXT_PUBLIC_ADMIN_API_URL ?? "http://localhost:4100";
 const OLLAMA_URL = `${API_URL}/ollama`;
@@ -234,21 +235,20 @@ export default function OllamaChatPage() {
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
+                className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm ${
                   msg.role === "user"
-                    ? "bg-accent text-white rounded-br-md"
-                    : "bg-surface text-text rounded-bl-md"
+                    ? "bg-accent text-white rounded-br-md whitespace-pre-wrap"
+                    : "bg-surface text-text rounded-bl-md prose prose-sm prose-invert max-w-none"
                 }`}
               >
-                {msg.content}
+                {msg.role === "user" ? msg.content : <ReactMarkdown>{msg.content}</ReactMarkdown>}
               </div>
             </div>
           ))}
           {generating && (
             <div className="flex justify-start">
-              <div className="max-w-[75%] rounded-2xl rounded-bl-md bg-surface px-4 py-3 text-sm text-text whitespace-pre-wrap">
-                {streamText || <span className="animate-pulse text-text-muted">...</span>}
-                {streamText && <span className="animate-pulse">▍</span>}
+              <div className="max-w-[75%] rounded-2xl rounded-bl-md bg-surface px-4 py-3 text-sm text-text prose prose-sm prose-invert max-w-none">
+                {streamText ? <><ReactMarkdown>{streamText}</ReactMarkdown><span className="animate-pulse">▍</span></> : <span className="animate-pulse text-text-muted">...</span>}
               </div>
             </div>
           )}
