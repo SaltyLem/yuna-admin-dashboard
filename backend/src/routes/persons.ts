@@ -75,9 +75,17 @@ router.get("/", async (req: Request, res: Response) => {
   } catch (err) { forwardError(res, err); }
 });
 
+router.get("/levels", async (_req, res) => {
+  try {
+    res.json(await yunaApi(`/api/admin/persons/levels`));
+  } catch (err) { forwardError(res, err); }
+});
+
 router.get("/:id", async (req, res) => {
-  // Avoid swallowing /search (handled above).
-  if (req.params.id === "search") return res.status(404).json({ error: "Not found" });
+  // Avoid swallowing /search and /levels (handled above).
+  if (req.params.id === "search" || req.params.id === "levels") {
+    return res.status(404).json({ error: "Not found" });
+  }
   try {
     res.json(await yunaApi(`/api/admin/persons/${encodeURIComponent(req.params.id)}`));
   } catch (err) { forwardError(res, err); }

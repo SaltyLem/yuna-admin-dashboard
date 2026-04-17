@@ -37,6 +37,26 @@ interface Identity {
   verified: boolean;
 }
 
+interface LevelDef {
+  level: number;
+  name: string;
+  name_ja: string;
+  threshold: number;
+  min_familiarity: number;
+  min_sentiment: number;
+  min_trust: number;
+  min_gratitude: number;
+}
+
+function computeScore(p: Person): number {
+  return (
+    p.familiarity * 0.35 +
+    Math.max(p.sentiment, 0) * 0.2 +
+    p.trust * 0.25 +
+    p.gratitude * 0.2
+  );
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString(undefined, {
@@ -56,6 +76,21 @@ export default function PersonsPage() {
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<string>("last_seen_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [levels, setLevels] = useState<LevelDef[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const d = await apiFetch<{ levels: LevelDef[] }>(`/persons/levels`);
+        setLevels(d.levels);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const nextThreshold = (lv: number): number | null => {
+    const next = levels.find((l) => l.level === lv + 1);
+    return next ? next.threshold : null;
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,6 +147,17 @@ export default function PersonsPage() {
       key: "relationship_level", label: "Lv", width: "w-12", sortable: true,
       cellClass: "text-text-muted tabular-nums",
       render: (p) => p.relationship_level,
+    },
+    {
+      key: "threshold", label: "Score / Next", width: "w-24",
+      cellClass: "text-text-muted tabular-nums text-xs",
+      render: (p) => {
+        const next = nextThreshold(p.relationship_level);
+        const score = computeScore(p);
+        return next === null
+          ? `${score.toFixed(1)} / —`
+          : `${score.toFixed(1)} / ${next}`;
+      },
     },
     {
       key: "interaction_count", label: "Int", width: "w-14", sortable: true,
