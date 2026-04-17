@@ -125,13 +125,32 @@ export default function OllamaChatPage() {
         body: JSON.stringify({
           model: session.model,
           messages: session.messages,
-          stream: false,
+          stream: true,
         }),
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const full = data.message?.content ?? "";
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No reader");
+
+      const decoder = new TextDecoder();
+      let full = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n").filter(Boolean)) {
+          try {
+            const json = JSON.parse(line);
+            if (json.message?.content) {
+              full += json.message.content;
+              setStreamText(full);
+            }
+          } catch {}
+        }
+      }
 
       const assistantMsg: Message = { role: "assistant", content: full };
       session.messages = [...session.messages, assistantMsg];
