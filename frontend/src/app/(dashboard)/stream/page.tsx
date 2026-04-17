@@ -246,52 +246,52 @@ export default function LiveStreamMonitorPage() {
     <div className="relative h-full flex flex-col gap-2 overflow-hidden">
       <SciBg />
 
-      {/* main: 2-column split. Left = 4 stacked chart panels. Right = hero + timeline + feeds. */}
-      <div className="relative z-10 flex-1 min-h-0 grid grid-cols-12 gap-2">
+      {/* Top section (~55%): stats + JA act + EN act on the left, combined
+          JA+EN viewer chart on the right.
+          Bottom section (~45%): Theme Timeline / Comments / Utterances / Director. */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col gap-2">
 
-        {/* LEFT — JA activity / JA viewers / EN activity / EN viewers. Equal quarters. */}
-        <div className="col-span-4 xl:col-span-3 grid grid-rows-4 gap-2 min-h-0">
-          <PanelFrame title="JA Activity" accent={CHANNEL_COLOR.ja}>
-            <TimeframeChart channel="ja" kind="activity" color={CHANNEL_COLOR.ja} />
-          </PanelFrame>
-          <PanelFrame title="JA 同時接続" accent={CHANNEL_COLOR.ja}>
-            <TimeframeChart channel="ja" kind="viewers"  color={CHANNEL_COLOR.ja} />
-          </PanelFrame>
-          <PanelFrame title="EN Activity" accent={CHANNEL_COLOR.en}>
-            <TimeframeChart channel="en" kind="activity" color={CHANNEL_COLOR.en} />
-          </PanelFrame>
-          <PanelFrame title="EN 同時接続" accent={CHANNEL_COLOR.en}>
-            <TimeframeChart channel="en" kind="viewers"  color={CHANNEL_COLOR.en} />
+        {/* TOP */}
+        <div className="flex-[1.15] min-h-0 grid grid-cols-12 gap-2">
+          {/* Left: stats + two activity charts */}
+          <div className="col-span-5 grid grid-rows-3 gap-2 min-h-0">
+            <PanelFrame title="Status" accent="#a855f7">
+              <StatsPanel
+                byChannel={byChannel}
+                yunaState={yunaState}
+                connected={connected}
+                loading={loading}
+                nowMs={now}
+              />
+            </PanelFrame>
+            <PanelFrame title="JA Activity" accent={CHANNEL_COLOR.ja}>
+              <TimeframeChart channel="ja" kind="activity" color={CHANNEL_COLOR.ja} />
+            </PanelFrame>
+            <PanelFrame title="EN Activity" accent={CHANNEL_COLOR.en}>
+              <TimeframeChart channel="en" kind="activity" color={CHANNEL_COLOR.en} />
+            </PanelFrame>
+          </div>
+
+          {/* Right: combined JA+EN concurrent viewers */}
+          <PanelFrame className="col-span-7" title="JA + EN 同時接続" accent="#e879f9">
+            <CombinedViewersChart />
           </PanelFrame>
         </div>
 
-        {/* RIGHT — hero (with embedded KPI strip) + timeline + feeds */}
-        <div className="col-span-8 xl:col-span-9 flex flex-col gap-2 min-h-0">
-          <PanelFrame className="flex-[1.3]" title="Session Core" accent="#a855f7">
-            <HeroCore
-              byChannel={byChannel}
-              yunaState={yunaState}
-              connected={connected}
-              loading={loading}
-              nowMs={now}
-            />
-          </PanelFrame>
-
-          <PanelFrame className="shrink-0" title="Theme Timeline" accent="#fbbf24">
+        {/* BOTTOM — 4 equal panels */}
+        <div className="flex-1 min-h-0 grid grid-cols-4 gap-2">
+          <PanelFrame title="Theme Timeline" accent="#fbbf24">
             <DualThemeTimeline byChannel={byChannel} />
           </PanelFrame>
-
-          <div className="flex-1 grid grid-cols-3 gap-2 min-h-0">
-            <PanelFrame title="Comments" accent="#38bdf8">
-              <CommentsFeed byChannel={byChannel} />
-            </PanelFrame>
-            <PanelFrame title="YUNA Utterances" accent="#c084fc">
-              <UtterancesFeed byChannel={byChannel} />
-            </PanelFrame>
-            <PanelFrame title="Director" accent="#fb7185">
-              <DirectorList byChannel={byChannel} />
-            </PanelFrame>
-          </div>
+          <PanelFrame title="Comments" accent="#38bdf8">
+            <CommentsFeed byChannel={byChannel} />
+          </PanelFrame>
+          <PanelFrame title="YUNA Utterances" accent="#c084fc">
+            <UtterancesFeed byChannel={byChannel} />
+          </PanelFrame>
+          <PanelFrame title="Director" accent="#fb7185">
+            <DirectorList byChannel={byChannel} />
+          </PanelFrame>
         </div>
       </div>
     </div>
@@ -402,10 +402,10 @@ function PanelFrame({
 }
 
 /* ============================================================= */
-/*  Hero core: dual session rings + emotion                       */
+/*  Stats panel: per-channel status + 6 aggregate KPIs + WS/clock */
 /* ============================================================= */
 
-function HeroCore({
+function StatsPanel({
   byChannel, yunaState, connected, loading, nowMs,
 }: {
   byChannel: Record<Channel, ChannelLive | null>;
@@ -414,23 +414,19 @@ function HeroCore({
   loading: boolean;
   nowMs: number;
 }) {
-  const ring = (ch: Channel) => {
+  const channelInfo = (ch: Channel) => {
     const c = byChannel[ch];
     const status = c?.status?.status ?? "idle";
     const started = c?.monitor?.stream.started_at ? Date.parse(c.monitor.stream.started_at) : 0;
-    const target = safeNum(c?.monitor?.stream.target_minutes) * 60_000;
     const elapsed = started ? nowMs - started : 0;
-    const progress = target > 0 ? clamp01(elapsed / target) : 0;
-    return { status, elapsed, target, progress, active: status !== "idle" && started > 0 };
+    const active = status !== "idle" && started > 0;
+    return { status, elapsed, active, title: c?.status?.title ?? c?.monitor?.stream.title ?? "" };
   };
-  const ja = ring("ja");
-  const en = ring("en");
+  const ja = channelInfo("ja");
+  const en = channelInfo("en");
 
-  const valence = safeNum(yunaState?.emotion?.valence);
-  const arousal = safeNum(yunaState?.emotion?.arousal);
   const category = yunaState?.emotion?.category ?? "—";
 
-  // Aggregated KPIs that used to live in the TotalsBar row (removed).
   const counts = (ch: Channel) => byChannel[ch]?.monitor?.counts;
   const total = (key: keyof Counts) =>
     safeNum(counts("ja")?.[key]) + safeNum(counts("en")?.[key]);
@@ -440,12 +436,6 @@ function HeroCore({
   const totalSuperUsd =
     safeNum(counts("ja")?.superchat_total) + safeNum(counts("en")?.superchat_total);
   const todayCost = yunaState?.todayCostUsd;
-
-  // SVG arc (viewBox coords; rendered responsively)
-  const size = 240;
-  const cx = size / 2, cy = size / 2;
-  const outerR = 104, innerR = 82;
-  const stroke = 8;
 
   return (
     <div className="flex flex-col h-full gap-2">
@@ -466,92 +456,31 @@ function HeroCore({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex items-center justify-center">
-        <div className="relative h-full aspect-square">
-        <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} preserveAspectRatio="xMidYMid meet">
-          <defs>
-            <linearGradient id="ringJa" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor={CHANNEL_COLOR.ja} />
-              <stop offset="100%" stopColor="#3b82f6" />
-            </linearGradient>
-            <linearGradient id="ringEn" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor={CHANNEL_COLOR.en} />
-              <stop offset="100%" stopColor="#a855f7" />
-            </linearGradient>
-            <filter id="glow">
-              <feGaussianBlur stdDeviation="3" result="blur"/>
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-          </defs>
-
-          {/* tick marks */}
-          {Array.from({ length: 60 }).map((_, i) => {
-            const a = (i / 60) * 2 * Math.PI - Math.PI / 2;
-            const r1 = outerR + 12, r2 = outerR + 16;
-            const bold = i % 5 === 0;
-            return (
-              <line
-                key={i}
-                x1={cx + Math.cos(a) * r1}
-                y1={cy + Math.sin(a) * r1}
-                x2={cx + Math.cos(a) * r2}
-                y2={cy + Math.sin(a) * r2}
-                stroke={bold ? "#67e8f9" : "#475569"}
-                strokeWidth={bold ? 1.5 : 0.8}
-                opacity={bold ? 0.8 : 0.4}
-              />
-            );
-          })}
-
-          {/* outer track + JA progress */}
-          <circle cx={cx} cy={cy} r={outerR} fill="none" stroke="#1e293b" strokeWidth={stroke} />
-          <Arc cx={cx} cy={cy} r={outerR} stroke="url(#ringJa)" strokeWidth={stroke}
-            progress={ja.progress} filter="url(#glow)" dim={!ja.active} />
-          {/* inner track + EN progress */}
-          <circle cx={cx} cy={cy} r={innerR} fill="none" stroke="#1e293b" strokeWidth={stroke} />
-          <Arc cx={cx} cy={cy} r={innerR} stroke="url(#ringEn)" strokeWidth={stroke}
-            progress={en.progress} filter="url(#glow)" dim={!en.active} />
-
-          {/* inner circle background */}
-          <circle cx={cx} cy={cy} r={innerR - stroke - 2} fill="#05070d" fillOpacity={0.6} />
-
-          {/* valence arc (bottom) */}
-          <ValenceArc cx={cx} cy={cy} r={innerR - stroke - 10} valence={valence} />
-        </svg>
-
-        {/* center content */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-          <div className="text-[9px] uppercase tracking-[0.3em] text-text-muted">Comments</div>
-          <div className="text-4xl font-bold tabular-nums text-cyan-300"
-            style={{ textShadow: "0 0 16px rgba(34,211,238,0.6)" }}>
-            {totalComments}
-          </div>
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-fuchsia-300">
-            <span style={{ textShadow: "0 0 8px rgba(232,121,249,0.6)" }}>{category}</span>
-          </div>
-          <div className="mt-1 text-[9px] text-text-faint tabular-nums">
-            V {valence.toFixed(2)} · A {arousal.toFixed(2)}
-          </div>
-        </div>
-
-        {/* orbiting particles (purely decorative) */}
-        <OrbitingDots />
-        </div>
-      </div>
-
-      {/* JA/EN legend */}
+      {/* JA / EN per-channel cards */}
       <div className="shrink-0 grid grid-cols-2 gap-2 text-[11px]">
-        {(["ja", "en"] as Channel[]).map(ch => {
+        {(["ja", "en"] as Channel[]).map((ch) => {
           const r = ch === "ja" ? ja : en;
+          const pal = phasePalette(r.status);
           const color = CHANNEL_COLOR[ch];
           return (
-            <div key={ch} className="rounded-md border border-white/5 bg-white/[0.02] px-2 py-1.5 flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
-                <span className="font-medium" style={{ color }}>{CHANNEL_LABEL[ch]}</span>
-                <span className="text-text-muted uppercase text-[9px]">{phasePalette(r.status).label}</span>
+            <div
+              key={ch}
+              className="rounded-md border px-2.5 py-2 flex items-center justify-between transition"
+              style={{
+                background: "#0b1120cc",
+                borderColor: `${color}33`,
+                boxShadow: r.active ? `0 0 14px -4px ${color}66, 0 0 1px ${color}66 inset` : undefined,
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm" style={{ color, textShadow: `0 0 8px ${color}66` }}>
+                  {CHANNEL_LABEL[ch]}
+                </span>
+                <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.15em] ${pal.bg} ${pal.fg}`}>
+                  {pal.label}
+                </span>
               </div>
-              <span className="tabular-nums" style={{ color }}>
+              <span className="tabular-nums text-[13px] font-medium" style={{ color }}>
                 {r.active ? formatElapsed(r.elapsed) : "—"}
               </span>
             </div>
@@ -559,8 +488,8 @@ function HeroCore({
         })}
       </div>
 
-      {/* consolidated KPI strip (was the separate top totals row) */}
-      <div className="shrink-0 grid grid-cols-3 md:grid-cols-6 gap-px bg-white/5 rounded-md overflow-hidden border border-white/5">
+      {/* 6-KPI grid */}
+      <div className="flex-1 min-h-0 grid grid-cols-3 gap-px bg-white/5 rounded-md overflow-hidden border border-white/5">
         <MiniKpi label="Comments" value={totalComments}       accent="#22d3ee" />
         <MiniKpi label="Viewers"  value={totalViewers}        accent="#22d3ee" />
         <MiniKpi label="Super"    value={totalSuper}          accent="#fbbf24" />
@@ -581,76 +510,6 @@ function MiniKpi({ label, value, accent }: { label: string; value: string | numb
         style={{ color: accent, textShadow: `0 0 8px ${accent}44` }}
       >
         {value}
-      </div>
-    </div>
-  );
-}
-
-function Arc({
-  cx, cy, r, stroke, strokeWidth, progress, filter, dim,
-}: {
-  cx: number; cy: number; r: number;
-  stroke: string; strokeWidth: number; progress: number;
-  filter?: string; dim?: boolean;
-}) {
-  if (progress <= 0 || dim) {
-    return null;
-  }
-  const p = clamp01(progress);
-  const end = -Math.PI / 2 + 2 * Math.PI * p;
-  const x1 = cx + Math.cos(-Math.PI / 2) * r;
-  const y1 = cy + Math.sin(-Math.PI / 2) * r;
-  const x2 = cx + Math.cos(end) * r;
-  const y2 = cy + Math.sin(end) * r;
-  const large = p > 0.5 ? 1 : 0;
-  return (
-    <path
-      d={`M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`}
-      fill="none"
-      stroke={stroke}
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      filter={filter}
-    />
-  );
-}
-
-function ValenceArc({
-  cx, cy, r, valence,
-}: { cx: number; cy: number; r: number; valence: number }) {
-  const v = Math.max(-1, Math.min(1, valence));
-  const positive = v >= 0;
-  const color = positive ? "#10b981" : "#ef4444";
-  const mag = Math.abs(v);
-  // Semi-circle from 180deg to 360deg (bottom half). Fill proportionally from center outwards.
-  const start = Math.PI; // left
-  const end = Math.PI + mag * Math.PI * (positive ? 1 : -1); // clockwise if positive
-  const sx = cx + Math.cos(start) * r;
-  const sy = cy + Math.sin(start) * r;
-  const ex = cx + Math.cos(end) * r;
-  const ey = cy + Math.sin(end) * r;
-  const large = mag > 0.5 ? 1 : 0;
-  const sweep = positive ? 1 : 0;
-  if (mag < 0.02) return null;
-  return (
-    <path
-      d={`M ${sx} ${sy} A ${r} ${r} 0 ${large} ${sweep} ${ex} ${ey}`}
-      fill="none"
-      stroke={color}
-      strokeWidth={2}
-      strokeOpacity={0.7}
-    />
-  );
-}
-
-function OrbitingDots() {
-  return (
-    <div className="pointer-events-none absolute inset-0">
-      <div className="absolute inset-0 animate-spin" style={{ animationDuration: "22s" }}>
-        <div className="absolute left-1/2 top-0 h-1 w-1 -translate-x-1/2 rounded-full bg-cyan-300" style={{ boxShadow: "0 0 8px #22d3ee" }} />
-      </div>
-      <div className="absolute inset-0 animate-spin" style={{ animationDuration: "32s", animationDirection: "reverse" }}>
-        <div className="absolute right-2 top-1/2 h-1 w-1 -translate-y-1/2 rounded-full bg-fuchsia-300" style={{ boxShadow: "0 0 8px #e879f9" }} />
       </div>
     </div>
   );
@@ -816,6 +675,140 @@ function formatBucketTick(ms: number, bucketMinutes: number): string {
     return d.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit" });
   }
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/* ============================================================= */
+/*  Combined JA + EN viewers chart                                */
+/* ============================================================= */
+
+interface CombinedPoint {
+  t: number;
+  ja: number;
+  ja_max: number;
+  en: number;
+  en_max: number;
+}
+
+function CombinedViewersChart() {
+  const [tfIdx, setTfIdx] = useState(1); // 15m default
+  const tf = TIMEFRAMES[tfIdx]!;
+  const [series, setSeries] = useState<CombinedPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    async function fetchOnce() {
+      try {
+        const qs = `kind=viewers&bucketMinutes=${tf.bucketMinutes}&buckets=30`;
+        const [ja, en] = await Promise.all([
+          apiFetch<ActivitySeriesResp>(`/stream/activity?channel=ja&${qs}`, { silent: true }),
+          apiFetch<ActivitySeriesResp>(`/stream/activity?channel=en&${qs}`, { silent: true }),
+        ]);
+        if (cancelled) return;
+        const enByT = new Map(en.series.map(s => [s.t, s]));
+        const merged: CombinedPoint[] = ja.series.map(j => {
+          const e = enByT.get(j.t);
+          return {
+            t: j.t,
+            ja: Number(j["avg"] ?? 0),
+            ja_max: Number(j["max"] ?? 0),
+            en: Number(e?.["avg"] ?? 0),
+            en_max: Number(e?.["max"] ?? 0),
+          };
+        });
+        setSeries(merged);
+        setLoading(false);
+      } catch { if (!cancelled) setLoading(false); }
+    }
+    void fetchOnce();
+    const h = setInterval(fetchOnce, refreshIntervalMs(tf.bucketMinutes));
+    return () => { cancelled = true; clearInterval(h); };
+  }, [tf.bucketMinutes]);
+
+  const hasData = series.some(s => s.ja + s.en + s.ja_max + s.en_max > 0);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="shrink-0 flex items-center justify-between gap-2 mb-1">
+        <div className="flex items-center gap-3 text-[10px]">
+          <Legend color={CHANNEL_COLOR.ja} label="JA" />
+          <Legend color={CHANNEL_COLOR.en} label="EN" />
+        </div>
+        <div className="flex items-center gap-1 text-[10px]">
+          {TIMEFRAMES.map((t, i) => (
+            <button
+              key={t.label}
+              onClick={() => setTfIdx(i)}
+              className={[
+                "px-1.5 py-0.5 rounded tabular-nums tracking-wide transition",
+                i === tfIdx ? "text-[#05070d] font-semibold" : "text-text-muted hover:text-text",
+              ].join(" ")}
+              style={
+                i === tfIdx
+                  ? { background: "#e879f9", boxShadow: "0 0 8px #e879f9aa" }
+                  : { background: "transparent" }
+              }
+            >
+              {t.label}足
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 relative">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-text-faint">loading…</div>
+        )}
+        {!loading && !hasData && (
+          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-text-faint pointer-events-none z-10 text-center">
+            viewers source 未接続<br />
+            <span className="text-[9px] mt-1">stream:{`{ja,en}`}:viewers に count を publish すると表示されます</span>
+          </div>
+        )}
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="cv-ja" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={CHANNEL_COLOR.ja} stopOpacity={0.55} />
+                <stop offset="100%" stopColor={CHANNEL_COLOR.ja} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="cv-en" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={CHANNEL_COLOR.en} stopOpacity={0.55} />
+                <stop offset="100%" stopColor={CHANNEL_COLOR.en} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#ffffff10" vertical={false} />
+            <XAxis
+              dataKey="t"
+              tickFormatter={(v: number) => formatBucketTick(Number(v), tf.bucketMinutes)}
+              stroke="#64748b"
+              fontSize={10}
+              tickLine={false}
+              axisLine={false}
+              minTickGap={32}
+            />
+            <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} width={28} allowDecimals={false} />
+            <Tooltip
+              contentStyle={{ background: "#0b1120", border: "1px solid #e879f966", fontSize: 11 }}
+              labelFormatter={(v) => new Date(Number(v)).toLocaleString()}
+            />
+            <Area type="monotone" dataKey="ja" name="JA viewers" stroke={CHANNEL_COLOR.ja} strokeWidth={1.6} fill="url(#cv-ja)" isAnimationActive={false} />
+            <Area type="monotone" dataKey="en" name="EN viewers" stroke={CHANNEL_COLOR.en} strokeWidth={1.6} fill="url(#cv-en)" isAnimationActive={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+      <span style={{ color }}>{label}</span>
+    </div>
+  );
 }
 
 /* ============================================================= */
