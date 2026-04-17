@@ -37,11 +37,11 @@ export function Sidebar({ open = false }: SidebarProps) {
 
   return (
     <aside
-      className={`shrink-0 flex flex-col py-4 gap-2 border-r border-border transition-[width] duration-200 ease-out ${
+      className={`shrink-0 h-full min-h-0 flex flex-col py-4 gap-2 border-r border-border transition-[width] duration-200 ease-out ${
         open ? "w-56" : "w-16"
       }`}
     >
-      <nav className={`flex-1 flex flex-col gap-1 ${open ? "px-3" : "items-center"}`}>
+      <nav className={`flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 ${open ? "px-3" : "items-center"}`}>
         {NAV.map((item) => {
           const sectionActive = isInSection(item);
           const exactActive = isExact(item.href);
