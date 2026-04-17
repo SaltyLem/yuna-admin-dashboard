@@ -932,20 +932,28 @@ interface UiComment {
 }
 
 function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiComment[] {
-  const out: UiComment[] = [];
+  // Dedupe by a natural key (channel + external id + text + at) — the same
+  // comment can arrive from the DB monitor payload, the WS event stream,
+  // and the periodic hydration poll; React requires stable unique keys.
+  const byKey = new Map<string, UiComment>();
+  const put = (key: string, c: UiComment) => {
+    if (!byKey.has(key)) byKey.set(key, c);
+  };
   for (const ch of CHANNELS) {
     const c = byChannel[ch];
     if (!c) continue;
-    for (let i = 0; i < (c.monitor?.comments ?? []).length; i++) {
-      const m = c.monitor!.comments[i]!;
-      out.push({
-        id: `m-${ch}-${i}-${m.commented_at}`,
+    for (const m of (c.monitor?.comments ?? [])) {
+      const extId = m.author_channel_id ?? m.display_name;
+      const at = Date.parse(m.commented_at);
+      const key = `${ch}|${extId}|${at}|${m.text}`;
+      put(key, {
+        id: key,
         channel: ch,
         user: m.nickname || m.display_name,
         text: m.text,
         isSuperchat: m.is_superchat,
         amount: m.amount ?? undefined,
-        at: Date.parse(m.commented_at),
+        at,
       });
     }
     const latestDb = (c.monitor?.comments ?? [])[0]?.commented_at
@@ -957,18 +965,21 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
       if (!p) continue;
       const at = typeof p["timestamp"] === "number" ? (p["timestamp"] as number) : Date.parse(e.recorded_at);
       if (at <= latestDb) continue;
-      out.push({
-        id: `e-${ch}-${String(p["id"] ?? at)}`,
+      const extId = typeof p["id"] === "string" ? p["id"] : `${String(p["user"] ?? "?")}@${at}`;
+      const text = String(p["text"] ?? "");
+      const key = `${ch}|${extId}|${at}|${text}`;
+      put(key, {
+        id: key,
         channel: ch,
         user: String(p["user"] ?? "?"),
-        text: String(p["text"] ?? ""),
+        text,
         isSuperchat: Boolean(p["isSuperchat"]),
         amount: p["amount"] as string | undefined,
         at,
       });
     }
   }
-  return out.sort((a, b) => b.at - a.at).slice(0, 60);
+  return [...byKey.values()].sort((a, b) => b.at - a.at).slice(0, 60);
 }
 
 function CommentsFeed({ byChannel }: { byChannel: Record<Channel, ChannelLive | null> }) {
@@ -1009,21 +1020,29 @@ function CommentsFeed({ byChannel }: { byChannel: Record<Channel, ChannelLive | 
 /* ============================================================= */
 
 function UtterancesFeed({ byChannel }: { byChannel: Record<Channel, ChannelLive | null> }) {
-  const rows: Array<{
+  type Row = {
     id: string; channel: Channel; texts: string[]; expression?: string;
     isReply: boolean; at: number;
-  }> = [];
+  };
+  // Dedupe by (channel + joined-text + at); talker DB rows and speak WS
+  // events carry the same utterances so without this keys collide.
+  const byKey = new Map<string, Row>();
+  const put = (key: string, r: Row) => { if (!byKey.has(key)) byKey.set(key, r); };
+
   for (const ch of CHANNELS) {
     const c = byChannel[ch];
     if (!c) continue;
-    (c.monitor?.talkerResults ?? []).forEach((t, i) => {
-      rows.push({
-        id: `t-${ch}-${i}`,
+    (c.monitor?.talkerResults ?? []).forEach((t) => {
+      const texts = t.utterances.map(u => u.text);
+      const at = Date.parse(t.created_at);
+      const key = `${ch}|${at}|${texts.join("|")}`;
+      put(key, {
+        id: key,
         channel: ch,
-        texts: t.utterances.map(u => u.text),
+        texts,
         expression: t.utterances[0]?.expression,
         isReply: Boolean(t.comment_text),
-        at: Date.parse(t.created_at),
+        at,
       });
     });
     for (const e of c.events) {
@@ -1031,18 +1050,20 @@ function UtterancesFeed({ byChannel }: { byChannel: Record<Channel, ChannelLive 
       const p = e.payload as Record<string, unknown> | null;
       if (!p) continue;
       const us = Array.isArray(p["utterances"]) ? p["utterances"] as Array<Record<string, unknown>> : [];
-      rows.push({
-        id: `s-${ch}-${e.id ?? e.recorded_at}`,
+      const texts = us.map(u => String(u["text"] ?? ""));
+      const at = Date.parse(e.recorded_at);
+      const key = `${ch}|${at}|${texts.join("|")}`;
+      put(key, {
+        id: key,
         channel: ch,
-        texts: us.map(u => String(u["text"] ?? "")),
+        texts,
         expression: us[0]?.["expression"] as string | undefined,
         isReply: Boolean(us[0]?.["comment"]),
-        at: Date.parse(e.recorded_at),
+        at,
       });
     }
   }
-  rows.sort((a, b) => b.at - a.at);
-  const top = rows.slice(0, 25);
+  const top = [...byKey.values()].sort((a, b) => b.at - a.at).slice(0, 25);
   if (top.length === 0) return <Empty label="no utterances yet" />;
   return (
     <div className="flex flex-col gap-1 overflow-y-auto h-full scrollbar-none">
