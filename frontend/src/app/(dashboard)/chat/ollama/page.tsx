@@ -238,7 +238,7 @@ export default function OllamaChatPage() {
                 className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm ${
                   msg.role === "user"
                     ? "bg-accent text-white rounded-br-md whitespace-pre-wrap"
-                    : "bg-surface text-text rounded-bl-md prose prose-sm prose-invert max-w-none"
+                    : "bg-surface text-text rounded-bl-md prose prose-sm prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-pre:my-3 prose-hr:my-4"
                 }`}
               >
                 {msg.role === "user" ? msg.content : <ReactMarkdown>{msg.content}</ReactMarkdown>}
@@ -247,7 +247,7 @@ export default function OllamaChatPage() {
           ))}
           {generating && (
             <div className="flex justify-start">
-              <div className="max-w-[75%] rounded-2xl rounded-bl-md bg-surface px-4 py-3 text-sm text-text prose prose-sm prose-invert max-w-none">
+              <div className="max-w-[75%] rounded-2xl rounded-bl-md bg-surface px-4 py-3 text-sm text-text prose prose-sm prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-pre:my-3 prose-hr:my-4">
                 {streamText ? <><ReactMarkdown>{streamText}</ReactMarkdown><span className="animate-pulse">▍</span></> : <span className="animate-pulse text-text-muted">...</span>}
               </div>
             </div>
