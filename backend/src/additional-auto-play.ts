@@ -9,7 +9,7 @@ import { Redis } from "ioredis";
 import crypto from "crypto";
 import { getPublisher } from "./redis-pub.js";
 import { getDb } from "./db/sqlite.js";
-import { generateJson } from "./ollama.js";
+import { generateJson, parseCommentsJson } from "./ollama.js";
 
 const REDIS_STREAM_URL = process.env["REDIS_STREAM_URL"] ?? "redis://localhost:6381";
 
@@ -185,13 +185,11 @@ async function generateLLMComments(
     "\"" + speakText + "\"\n\n" +
     "Generate a natural, casual comment in " + lang + " for each viewer: " + viewerList + "\n\n" +
     "Rules: short (1 sentence max), varied, natural, no formal language.\n" +
-    "JSON array only: [{\"name\": \"...\", \"comment\": \"...\"}]";
+    "Respond with this exact JSON shape:\n" +
+    "{\"comments\": [{\"name\": \"...\", \"comment\": \"...\"}]}";
 
   const text = await generateJson(prompt, { maxTokens: 1024 });
-  const match = text.match(/\[[\s\S]*\]/);
-  if (!match) return [];
-
-  const parsed = JSON.parse(match[0]) as Array<{ name: string; comment: string }>;
+  const parsed = parseCommentsJson(text);
   return parsed.map((c) => {
     const v = viewers.find((v) => v.name === c.name);
     return { name: c.name, channelId: v?.author_channel_id ?? "", comment: c.comment };

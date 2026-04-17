@@ -8,7 +8,7 @@
 import { Redis } from "ioredis";
 import crypto from "crypto";
 import { getPublisher } from "./redis-pub.js";
-import { generateJson } from "./ollama.js";
+import { generateJson, parseCommentsJson } from "./ollama.js";
 
 const REDIS_STREAM_URL = process.env["REDIS_STREAM_URL"] ?? "redis://localhost:6381";
 
@@ -90,13 +90,12 @@ async function generateAndPublish(): Promise<void> {
       "- Match the language to the viewer location (ja = Japanese, en = English)\n" +
       "- Be natural: reactions, questions, jokes, agreement, emotes are all fine\n" +
       "- Do NOT be overly formal or polite\n\n" +
-      "Respond with JSON array only: [{\"name\": \"...\", \"comment\": \"...\"}]";
+      "Respond with this exact JSON shape:\n" +
+      "{\"comments\": [{\"name\": \"...\", \"comment\": \"...\"}]}";
 
     const text = await generateJson(prompt, { maxTokens: 1024 });
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return;
-
-    const comments = JSON.parse(jsonMatch[0]) as Array<{ name: string; comment: string }>;
+    const comments = parseCommentsJson(text);
+    if (comments.length === 0) return;
     const pub = getPublisher();
 
     for (const c of comments) {

@@ -1,4 +1,21 @@
 const OLLAMA_URL = process.env["OLLAMA_URL"] ?? "http://192.168.11.17:11434";
+
+/**
+ * Ollama の format=json は配列を直接返せないので、
+ * {"comments": [...]} ラッパー形式で投げて中身を取り出す。
+ * 単一オブジェクト {name, comment} が返ってきた場合も救済する。
+ */
+export function parseCommentsJson(
+  text: string,
+): Array<{ name: string; comment: string }> {
+  try {
+    const obj = JSON.parse(text);
+    if (Array.isArray(obj)) return obj;
+    if (Array.isArray(obj?.comments)) return obj.comments;
+    if (typeof obj?.name === "string" && typeof obj?.comment === "string") return [obj];
+  } catch {}
+  return [];
+}
 const OLLAMA_MODEL = process.env["OLLAMA_MODEL"] ?? "qwen3.5:27b";
 
 export async function generateJson(
