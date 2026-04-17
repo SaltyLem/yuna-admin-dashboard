@@ -693,20 +693,25 @@ function TimeframeChart({
   kind: "activity" | "viewers";
   color: string;
 }) {
-  const [tfIdx, setTfIdx] = useState(0);
+  // Default to 15m: 30 × 15 min = 7.5 hour window, captures a typical
+  // recent session even if YUNA is currently idle. 1m is for live mode.
+  const [tfIdx, setTfIdx] = useState(1);
   const tf = TIMEFRAMES[tfIdx]!;
   const [data, setData] = useState<ActivitySeriesResp | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setData(null);
     async function fetchOnce() {
       try {
         const d = await apiFetch<ActivitySeriesResp>(
           `/stream/activity?channel=${channel}&kind=${kind}&bucketMinutes=${tf.bucketMinutes}&buckets=30`,
           { silent: true },
         );
-        if (!cancelled) setData(d);
-      } catch { /* ignore */ }
+        if (!cancelled) { setData(d); setLoading(false); }
+      } catch { if (!cancelled) setLoading(false); }
     }
     void fetchOnce();
     const h = setInterval(fetchOnce, refreshIntervalMs(tf.bucketMinutes));
@@ -717,6 +722,17 @@ function TimeframeChart({
   const gid = `tc-${channel}-${kind}-${color.replace("#", "")}`;
   const series = data?.series ?? [];
   const isActivity = kind === "activity";
+  const hasData = series.some(s =>
+    isActivity
+      ? (Number(s["comments"] ?? 0) + Number(s["utterances"] ?? 0)) > 0
+      : (Number(s["avg"] ?? 0) + Number(s["max"] ?? 0)) > 0,
+  );
+  const windowLabel = (() => {
+    const total = tf.bucketMinutes * 30;
+    if (total >= 1440) return `${Math.round(total / 1440)}日`;
+    if (total >= 60) return `${Math.round(total / 60)}時間`;
+    return `${total}分`;
+  })();
 
   return (
     <div className="flex flex-col h-full">
@@ -737,7 +753,17 @@ function TimeframeChart({
           </button>
         ))}
       </div>
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint">
+            loading…
+          </div>
+        )}
+        {!loading && !hasData && (
+          <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint pointer-events-none z-10">
+            過去{windowLabel}の活動なし
+          </div>
+        )}
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <defs>
@@ -779,8 +805,8 @@ function TimeframeChart({
           </AreaChart>
         </ResponsiveContainer>
       </div>
-      {!isActivity && series.every(s => !s.max && !s.avg) && (
-        <div className="shrink-0 text-[9px] text-text-faint mt-0.5">viewers source未接続</div>
+      {!isActivity && !loading && !hasData && (
+        <div className="shrink-0 text-[9px] text-text-faint mt-0.5 text-center">viewers source未接続</div>
       )}
     </div>
   );
