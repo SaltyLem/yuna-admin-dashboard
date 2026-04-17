@@ -128,8 +128,8 @@ export function startSpeakSubscriber(): void {
   speakSub = new Redis(REDIS_STREAM_URL);
   speakSub.on("error", () => {});
 
-  void speakSub.subscribe("stream:speak").then(() => {
-    console.log("[auto-reply] subscribed to stream:speak");
+  void speakSub.subscribe("stream:ja:speak", "stream:en:speak").then(() => {
+    console.log("[auto-reply] subscribed to stream:{ja,en}:speak");
   });
 
   speakSub.on("message", (_channel, message) => {
