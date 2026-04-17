@@ -6,28 +6,12 @@
  */
 
 import { Redis } from "ioredis";
-import { VertexAI } from "@google-cloud/vertexai";
 import crypto from "crypto";
 import { getPublisher } from "./redis-pub.js";
 import { getDb } from "./db/sqlite.js";
+import { generateJson } from "./ollama.js";
 
 const REDIS_STREAM_URL = process.env["REDIS_STREAM_URL"] ?? "redis://localhost:6381";
-const GOOGLE_CREDENTIALS_JSON = process.env["GOOGLE_CREDENTIALS_JSON"] ?? "";
-
-let vertexAI: VertexAI | null = null;
-
-function getVertexAI(): VertexAI {
-  if (!vertexAI) {
-    if (!GOOGLE_CREDENTIALS_JSON) throw new Error("GOOGLE_CREDENTIALS_JSON not set");
-    const creds = JSON.parse(GOOGLE_CREDENTIALS_JSON);
-    vertexAI = new VertexAI({
-      project: creds.project_id,
-      location: "us-central1",
-      googleAuthOptions: { credentials: creds },
-    });
-  }
-  return vertexAI;
-}
 
 export interface AAPConfig {
   enabled: boolean;
@@ -194,9 +178,6 @@ async function generateLLMComments(
   speakText: string,
   viewers: Array<{ name: string; author_channel_id: string }>,
 ): Promise<Array<{ name: string; channelId: string; comment: string }>> {
-  const ai = getVertexAI();
-  const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
-
   const lang = config.channel === "ja" ? "Japanese" : "English";
   const viewerList = viewers.map((v) => v.name).join(", ");
 
@@ -206,8 +187,7 @@ async function generateLLMComments(
     "Rules: short (1 sentence max), varied, natural, no formal language.\n" +
     "JSON array only: [{\"name\": \"...\", \"comment\": \"...\"}]";
 
-  const result = await model.generateContent(prompt);
-  const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const text = await generateJson(prompt, { maxTokens: 1024 });
   const match = text.match(/\[[\s\S]*\]/);
   if (!match) return [];
 

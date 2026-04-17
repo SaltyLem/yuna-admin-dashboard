@@ -1,32 +1,16 @@
 /**
  * Auto Reply Worker
  *
- * stream:speak を監視して、設定間隔で Vertex AI (Gemini) に
- * 仮想視聴者のコメントを生成させ、stream:comments に publish する。
+ * stream:speak を監視して、設定間隔でローカル LLM (Ollama qwen3.5:27b) に
+ * 仮想視聴者のコメントを生成させ、stream:${channel}:comments に publish する。
  */
 
 import { Redis } from "ioredis";
-import { VertexAI } from "@google-cloud/vertexai";
 import crypto from "crypto";
 import { getPublisher } from "./redis-pub.js";
+import { generateJson } from "./ollama.js";
 
 const REDIS_STREAM_URL = process.env["REDIS_STREAM_URL"] ?? "redis://localhost:6381";
-const GOOGLE_CREDENTIALS_JSON = process.env["GOOGLE_CREDENTIALS_JSON"] ?? "";
-
-let vertexAI: VertexAI | null = null;
-
-function getVertexAI(): VertexAI {
-  if (!vertexAI) {
-    if (!GOOGLE_CREDENTIALS_JSON) throw new Error("GOOGLE_CREDENTIALS_JSON not set");
-    const creds = JSON.parse(GOOGLE_CREDENTIALS_JSON);
-    vertexAI = new VertexAI({
-      project: creds.project_id,
-      location: "us-central1",
-      googleAuthOptions: { credentials: creds },
-    });
-  }
-  return vertexAI;
-}
 
 export interface VirtualViewer {
   name: string;
@@ -94,9 +78,6 @@ async function generateAndPublish(): Promise<void> {
   const speakText = lastSpeak.text;
 
   try {
-    const ai = getVertexAI();
-    const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
-
     const viewerList = viewers.map((v) => "- " + v.name + " (" + (v.location === "ja" ? "日本語で" : "in English") + ")").join("\n");
 
     const prompt = "You are simulating YouTube live stream viewers. The streamer just said:\n\n" +
@@ -111,8 +92,7 @@ async function generateAndPublish(): Promise<void> {
       "- Do NOT be overly formal or polite\n\n" +
       "Respond with JSON array only: [{\"name\": \"...\", \"comment\": \"...\"}]";
 
-    const result = await model.generateContent(prompt);
-    const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    const text = await generateJson(prompt, { maxTokens: 1024 });
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return;
 
