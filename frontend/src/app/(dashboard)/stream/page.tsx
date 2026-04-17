@@ -252,7 +252,7 @@ export default function LiveStreamMonitorPage() {
       <div className="relative z-10 flex-1 min-h-0 flex flex-col gap-2">
 
         {/* TOP */}
-        <div className="flex-[1.15] min-h-0 grid grid-cols-12 gap-2">
+        <div className="flex-[1.7] min-h-0 grid grid-cols-12 gap-2">
           {/* Left: stats + two activity charts */}
           <div className="col-span-5 grid grid-rows-3 gap-2 min-h-0">
             <PanelFrame title="Status" accent="#a855f7">
@@ -278,22 +278,227 @@ export default function LiveStreamMonitorPage() {
           </PanelFrame>
         </div>
 
-        {/* BOTTOM — 4 equal panels */}
+        {/* BOTTOM — 4 panels, each internally split into JA | EN columns */}
         <div className="flex-1 min-h-0 grid grid-cols-4 gap-2">
           <PanelFrame title="Theme Timeline" accent="#fbbf24">
-            <DualThemeTimeline byChannel={byChannel} />
+            <ChannelSplit>
+              <ThemeTimelineColumn channel="ja" data={byChannel.ja} />
+              <ThemeTimelineColumn channel="en" data={byChannel.en} />
+            </ChannelSplit>
           </PanelFrame>
           <PanelFrame title="Comments" accent="#38bdf8">
-            <CommentsFeed byChannel={byChannel} />
+            <ChannelSplit>
+              <CommentsFeedColumn channel="ja" data={byChannel.ja} />
+              <CommentsFeedColumn channel="en" data={byChannel.en} />
+            </ChannelSplit>
           </PanelFrame>
           <PanelFrame title="YUNA Utterances" accent="#c084fc">
-            <UtterancesFeed byChannel={byChannel} />
+            <ChannelSplit>
+              <UtterancesFeedColumn channel="ja" data={byChannel.ja} />
+              <UtterancesFeedColumn channel="en" data={byChannel.en} />
+            </ChannelSplit>
           </PanelFrame>
           <PanelFrame title="Director" accent="#fb7185">
-            <DirectorList byChannel={byChannel} />
+            <ChannelSplit>
+              <DirectorColumn channel="ja" data={byChannel.ja} />
+              <DirectorColumn channel="en" data={byChannel.en} />
+            </ChannelSplit>
           </PanelFrame>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Renders two children side-by-side with a thin vertical divider and
+    a small JA/EN header on each side. */
+function ChannelSplit({ children }: { children: [React.ReactNode, React.ReactNode] }) {
+  return (
+    <div className="grid grid-cols-2 gap-0 h-full">
+      <div className="pr-1 flex flex-col min-h-0">
+        <div className="shrink-0 mb-1 text-[9px] font-semibold tracking-[0.2em]" style={{ color: CHANNEL_COLOR.ja }}>JA</div>
+        <div className="flex-1 min-h-0">{children[0]}</div>
+      </div>
+      <div className="pl-1 border-l border-white/5 flex flex-col min-h-0">
+        <div className="shrink-0 mb-1 text-[9px] font-semibold tracking-[0.2em]" style={{ color: CHANNEL_COLOR.en }}>EN</div>
+        <div className="flex-1 min-h-0">{children[1]}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================= */
+/*  Per-channel column variants (used inside ChannelSplit)        */
+/* ============================================================= */
+
+function ThemeTimelineColumn({ channel, data }: { channel: Channel; data: ChannelLive | null }) {
+  const segments = useMemo(
+    () => buildThemeHistory(data?.monitor?.directorIters ?? []),
+    [data?.monitor?.directorIters],
+  );
+  if (segments.length === 0) return <Empty label="no themes" />;
+  const first = segments[0]!.startedAt;
+  const last = segments[segments.length - 1]!.endedAt ?? Date.now();
+  const span = Math.max(1, last - first);
+  const color = CHANNEL_COLOR[channel];
+  return (
+    <div className="flex flex-col gap-1 h-full overflow-y-auto scrollbar-none">
+      {segments.slice().reverse().map((seg, i) => {
+        const end = seg.endedAt ?? last;
+        const widthPct = ((end - seg.startedAt) / span) * 100;
+        const isCurrent = seg.endedAt === null;
+        return (
+          <div
+            key={i}
+            title={seg.theme}
+            className="rounded-sm px-1.5 py-1 text-[10px] overflow-hidden text-ellipsis whitespace-nowrap"
+            style={{
+              background: isCurrent ? `${color}30` : `${color}12`,
+              color,
+              borderLeft: `2px solid ${color}`,
+              boxShadow: isCurrent ? `0 0 8px ${color}33` : undefined,
+            }}
+          >
+            <span className="opacity-60 mr-1 tabular-nums text-[9px]">
+              {Math.max(1, Math.round(widthPct))}%
+            </span>
+            {seg.theme}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CommentsFeedColumn({ channel, data }: { channel: Channel; data: ChannelLive | null }) {
+  const rows = useMemo(() => {
+    const filtered: Record<Channel, ChannelLive | null> = { ja: null, en: null };
+    filtered[channel] = data;
+    return mergeComments(filtered);
+  }, [channel, data]);
+  if (rows.length === 0) return <Empty label="no comments" />;
+  return (
+    <div className="flex flex-col gap-1 overflow-y-auto h-full scrollbar-none">
+      {rows.map((c) => (
+        <div
+          key={c.id}
+          className={[
+            "rounded-md px-1.5 py-1 text-[11px] border transition",
+            c.isSuperchat
+              ? "bg-amber-500/10 border-amber-500/30 shadow-[0_0_8px_rgba(251,191,36,0.2)]"
+              : "bg-white/[0.02] border-white/5 hover:bg-white/[0.05]",
+          ].join(" ")}
+        >
+          <div className="flex items-center gap-1 text-[9px]">
+            {c.isSuperchat && <span className="text-amber-300">★ {c.amount ?? ""}</span>}
+            <span className="text-text-muted truncate">{c.user}</span>
+            <span className="ml-auto tabular-nums text-text-faint">{formatTimeShort(c.at)}</span>
+          </div>
+          <div className="text-text break-all leading-snug">{c.text}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UtterancesFeedColumn({ channel, data }: { channel: Channel; data: ChannelLive | null }) {
+  type Row = { id: string; texts: string[]; expression?: string; isReply: boolean; at: number };
+  const rows = useMemo(() => {
+    const byKey = new Map<string, Row>();
+    const put = (key: string, r: Row) => { if (!byKey.has(key)) byKey.set(key, r); };
+    if (!data) return [];
+    (data.monitor?.talkerResults ?? []).forEach((t) => {
+      const texts = t.utterances.map(u => u.text);
+      const at = Date.parse(t.created_at);
+      const key = `${at}|${texts.join("|")}`;
+      put(key, {
+        id: key,
+        texts,
+        expression: t.utterances[0]?.expression,
+        isReply: Boolean(t.comment_text),
+        at,
+      });
+    });
+    for (const e of data.events) {
+      if (e.event_type !== "speak") continue;
+      const p = e.payload as Record<string, unknown> | null;
+      if (!p) continue;
+      const us = Array.isArray(p["utterances"]) ? p["utterances"] as Array<Record<string, unknown>> : [];
+      const texts = us.map(u => String(u["text"] ?? ""));
+      const at = Date.parse(e.recorded_at);
+      const key = `${at}|${texts.join("|")}`;
+      put(key, {
+        id: key,
+        texts,
+        expression: us[0]?.["expression"] as string | undefined,
+        isReply: Boolean(us[0]?.["comment"]),
+        at,
+      });
+    }
+    return [...byKey.values()].sort((a, b) => b.at - a.at).slice(0, 25);
+  }, [data]);
+
+  // channel is only used to disambiguate keys if needed; prevent unused warn
+  void channel;
+
+  if (rows.length === 0) return <Empty label="no utterances" />;
+  return (
+    <div className="flex flex-col gap-1 overflow-y-auto h-full scrollbar-none">
+      {rows.map((r) => (
+        <div key={r.id} className="rounded-md border border-white/5 bg-white/[0.02] px-1.5 py-1 hover:bg-white/[0.05] transition">
+          <div className="flex items-center gap-1 text-[9px]">
+            {r.expression && <span className="rounded bg-fuchsia-500/10 text-fuchsia-300 px-1">{r.expression}</span>}
+            {r.isReply && <span className="text-cyan-300">reply</span>}
+            <span className="ml-auto tabular-nums text-text-faint">{formatTimeShort(r.at)}</span>
+          </div>
+          {r.texts.map((t, i) => (
+            <div key={i} className="text-[11px] text-text leading-snug break-all">{t}</div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DirectorColumn({ channel, data }: { channel: Channel; data: ChannelLive | null }) {
+  const rows = useMemo(() => {
+    const iters = data?.monitor?.directorIters ?? [];
+    return [...iters]
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+      .slice(0, 12)
+      .map((it) => {
+        const actions = it.actions as Record<string, unknown> | null;
+        return {
+          id: `${it.created_at}-${it.iteration}`,
+          at: Date.parse(it.created_at),
+          theme: actions && typeof actions["currentTheme"] === "string" ? actions["currentTheme"] as string : "—",
+          pick: actions && typeof actions["pickComments"] === "number" ? actions["pickComments"] as number : 0,
+          close: Boolean(actions && actions["shouldClose"]),
+          emergency: Boolean(it.emergency_reason),
+          cost: safeNum(it.cost),
+          iter: it.iteration,
+        };
+      });
+  }, [data]);
+  void channel;
+  if (rows.length === 0) return <Empty label="no director" />;
+  return (
+    <div className="overflow-y-auto h-full scrollbar-none">
+      <table className="w-full text-[10px]">
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition">
+              <td className="py-1 px-1 tabular-nums text-text-faint w-12">{formatTimeShort(r.at)}</td>
+              <td className="py-1 px-1 tabular-nums text-text-muted w-6">#{r.iter}</td>
+              <td className="py-1 px-1 text-text truncate max-w-[120px]" title={r.theme}>{r.theme}</td>
+              <td className="py-1 px-1 w-10">
+                {r.close && <span className="rounded bg-amber-500/20 text-amber-300 px-1 text-[9px]">close</span>}
+                {r.emergency && <span className="ml-0.5 rounded bg-rose-500/20 text-rose-300 px-1 text-[9px]">emg</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
