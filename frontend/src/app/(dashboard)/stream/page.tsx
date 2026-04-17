@@ -963,11 +963,14 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
       if (e.event_type !== "comments") continue;
       const p = e.payload as Record<string, unknown> | null;
       if (!p) continue;
-      const at = typeof p["timestamp"] === "number" ? (p["timestamp"] as number) : Date.parse(e.recorded_at);
-      if (at <= latestDb) continue;
+      // Order by arrival time (when admin-backend received it) so newly
+      // arrived events always sort above older DB snapshot entries,
+      // even when the upstream payload.timestamp has lag.
+      const at = Date.parse(e.recorded_at);
+      if (at <= latestDb && !Number.isNaN(at) && at !== 0) continue;
       const extId = typeof p["id"] === "string" ? p["id"] : `${String(p["user"] ?? "?")}@${at}`;
       const text = String(p["text"] ?? "");
-      const key = `${ch}|${extId}|${at}|${text}`;
+      const key = `${ch}|${extId}|${text}`;
       put(key, {
         id: key,
         channel: ch,
