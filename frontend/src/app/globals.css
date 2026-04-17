@@ -63,3 +63,10 @@ body {
   border: 1px solid var(--color-border);
   border-radius: 9999px;
 }
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

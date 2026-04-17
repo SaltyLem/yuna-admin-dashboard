@@ -41,7 +41,7 @@ export function Sidebar({ open = false }: SidebarProps) {
         open ? "w-56" : "w-16"
       }`}
     >
-      <nav className={`flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 ${open ? "px-3" : "items-center"}`}>
+      <nav className={`flex-1 min-h-0 overflow-y-auto scrollbar-none flex flex-col gap-1 ${open ? "px-3" : "items-center"}`}>
         {NAV.map((item) => {
           const sectionActive = isInSection(item);
           const exactActive = isExact(item.href);
