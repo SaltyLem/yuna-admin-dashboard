@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  RadarChart, PolarGrid, PolarAngleAxis, Radar, PolarRadiusAxis,
-  PieChart, Pie, Cell,
 } from "recharts";
 import { apiFetch } from "@/components/use-api";
 import { useAdminWs } from "@/components/use-admin-ws";
@@ -248,67 +246,48 @@ export default function LiveStreamMonitorPage() {
     <div className="relative h-full flex flex-col gap-2 overflow-hidden">
       <SciBg />
 
-      <Header connected={connected} loading={loading} nowMs={now} />
-      <TotalsBar byChannel={byChannel} yunaState={yunaState} />
+      <TotalsBar byChannel={byChannel} yunaState={yunaState} connected={connected} loading={loading} nowMs={now} />
 
-      {/* main content: 3 sections stacked vertically */}
-      <div className="relative z-10 flex-1 min-h-0 flex flex-col gap-2">
+      {/* main: 2-column split. Left = 4 stacked chart panels. Right = hero + timeline + feeds. */}
+      <div className="relative z-10 flex-1 min-h-0 grid grid-cols-12 gap-2">
 
-        {/* SECTION A — hero centered with activity on left, pulse radars above/below,
-            EN activity on right. 12-col × 2-row grid. */}
-        <div className="flex-[1.35] min-h-0 grid grid-cols-12 grid-rows-2 gap-2">
-          <PanelFrame
-            className="col-start-1 col-end-4 row-start-1 row-end-2"
-            title="JA Activity" accent={CHANNEL_COLOR.ja}
-          >
-            <ActivityChart events={byChannel.ja?.events ?? []} nowMs={now} color={CHANNEL_COLOR.ja} />
+        {/* LEFT — JA activity / JA viewers / EN activity / EN viewers. Equal quarters. */}
+        <div className="col-span-4 xl:col-span-3 grid grid-rows-4 gap-2 min-h-0">
+          <PanelFrame title="JA Activity" accent={CHANNEL_COLOR.ja}>
+            <TimeframeChart channel="ja" kind="activity" color={CHANNEL_COLOR.ja} />
           </PanelFrame>
-
-          <PanelFrame
-            className="col-start-1 col-end-4 row-start-2 row-end-3"
-            title="JA Pulse" accent={CHANNEL_COLOR.ja}
-          >
-            <ChannelRadar channel="ja" data={byChannel.ja} nowMs={now} />
+          <PanelFrame title="JA 同時接続" accent={CHANNEL_COLOR.ja}>
+            <TimeframeChart channel="ja" kind="viewers"  color={CHANNEL_COLOR.ja} />
           </PanelFrame>
-
-          <PanelFrame
-            className="col-start-4 col-end-10 row-start-1 row-end-3"
-            title="Session Core" accent="#a855f7"
-          >
-            <HeroCore byChannel={byChannel} yunaState={yunaState} nowMs={now} />
+          <PanelFrame title="EN Activity" accent={CHANNEL_COLOR.en}>
+            <TimeframeChart channel="en" kind="activity" color={CHANNEL_COLOR.en} />
           </PanelFrame>
-
-          <PanelFrame
-            className="col-start-10 col-end-13 row-start-1 row-end-2"
-            title="EN Activity" accent={CHANNEL_COLOR.en}
-          >
-            <ActivityChart events={byChannel.en?.events ?? []} nowMs={now} color={CHANNEL_COLOR.en} />
-          </PanelFrame>
-
-          <PanelFrame
-            className="col-start-10 col-end-13 row-start-2 row-end-3"
-            title="EN Pulse" accent={CHANNEL_COLOR.en}
-          >
-            <ChannelRadar channel="en" data={byChannel.en} nowMs={now} />
+          <PanelFrame title="EN 同時接続" accent={CHANNEL_COLOR.en}>
+            <TimeframeChart channel="en" kind="viewers"  color={CHANNEL_COLOR.en} />
           </PanelFrame>
         </div>
 
-        {/* SECTION B — theme timeline, thin strip across full width */}
-        <PanelFrame className="shrink-0" title="Theme Timeline" accent="#fbbf24">
-          <DualThemeTimeline byChannel={byChannel} />
-        </PanelFrame>
+        {/* RIGHT — hero + timeline + feeds */}
+        <div className="col-span-8 xl:col-span-9 flex flex-col gap-2 min-h-0">
+          <PanelFrame className="flex-[1.2]" title="Session Core" accent="#a855f7">
+            <HeroCore byChannel={byChannel} yunaState={yunaState} nowMs={now} />
+          </PanelFrame>
 
-        {/* SECTION C — three feeds, equal width */}
-        <div className="flex-1 min-h-0 grid grid-cols-12 gap-2">
-          <PanelFrame className="col-span-4 min-h-0" title="Comments" accent="#38bdf8">
-            <CommentsFeed byChannel={byChannel} />
+          <PanelFrame className="shrink-0" title="Theme Timeline" accent="#fbbf24">
+            <DualThemeTimeline byChannel={byChannel} />
           </PanelFrame>
-          <PanelFrame className="col-span-4 min-h-0" title="YUNA Utterances" accent="#c084fc">
-            <UtterancesFeed byChannel={byChannel} />
-          </PanelFrame>
-          <PanelFrame className="col-span-4 min-h-0" title="Director" accent="#fb7185">
-            <DirectorList byChannel={byChannel} />
-          </PanelFrame>
+
+          <div className="flex-1 grid grid-cols-3 gap-2 min-h-0">
+            <PanelFrame title="Comments" accent="#38bdf8">
+              <CommentsFeed byChannel={byChannel} />
+            </PanelFrame>
+            <PanelFrame title="YUNA Utterances" accent="#c084fc">
+              <UtterancesFeed byChannel={byChannel} />
+            </PanelFrame>
+            <PanelFrame title="Director" accent="#fb7185">
+              <DirectorList byChannel={byChannel} />
+            </PanelFrame>
+          </div>
         </div>
       </div>
     </div>
@@ -419,47 +398,18 @@ function PanelFrame({
 }
 
 /* ============================================================= */
-/*  Header + totals bar                                           */
+/*  Totals bar                                                    */
 /* ============================================================= */
 
-function Header({
-  connected, loading, nowMs,
-}: { connected: boolean; loading: boolean; nowMs: number }) {
-  return (
-    <div className="relative z-10 flex items-center justify-between">
-      <div className="flex items-baseline gap-3">
-        <h1
-          className="text-2xl font-bold tracking-[0.25em] uppercase"
-          style={{
-            background: "linear-gradient(90deg, #22d3ee 0%, #e879f9 100%)",
-            WebkitBackgroundClip: "text",
-            color: "transparent",
-            textShadow: "0 0 18px rgba(34,211,238,0.25)",
-          }}
-        >
-          YUNA · Live Stream Monitor
-        </h1>
-        {loading && <span className="text-xs text-text-faint">loading…</span>}
-      </div>
-      <div className="flex items-center gap-4 text-xs">
-        <div className="flex items-center gap-1.5">
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-cyan-400" : "bg-red-500"} ${connected ? "animate-pulse" : ""}`}
-            style={connected ? { boxShadow: "0 0 8px #22d3ee" } : {}} />
-          <span className={connected ? "text-cyan-300" : "text-red-400"}>
-            {connected ? "WS LINK ONLINE" : "WS LINK OFFLINE"}
-          </span>
-        </div>
-        <div className="tabular-nums text-text-muted">
-          {new Date(nowMs).toLocaleTimeString()}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function TotalsBar({
-  byChannel, yunaState,
-}: { byChannel: Record<Channel, ChannelLive | null>; yunaState: YunaState | null }) {
+  byChannel, yunaState, connected, loading, nowMs,
+}: {
+  byChannel: Record<Channel, ChannelLive | null>;
+  yunaState: YunaState | null;
+  connected: boolean;
+  loading: boolean;
+  nowMs: number;
+}) {
   const counts = (ch: Channel) => byChannel[ch]?.monitor?.counts;
   const total = (key: keyof Counts) =>
     safeNum(counts("ja")?.[key]) + safeNum(counts("en")?.[key]);
@@ -467,13 +417,28 @@ function TotalsBar({
   const todayCost = yunaState?.todayCostUsd;
 
   return (
-    <div className="relative z-10 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-      <Kpi label="Comments" value={total("comment_count")} accent="#22d3ee" />
-      <Kpi label="Viewers"  value={total("unique_viewers")} accent="#22d3ee" />
-      <Kpi label="Superchats" value={total("superchat_count")} accent="#fbbf24" />
-      <Kpi label="Super $"  value={`$${(safeNum(counts("ja")?.superchat_total) + safeNum(counts("en")?.superchat_total)).toFixed(0)}`} accent="#fbbf24" />
-      <Kpi label="Emotion"  value={emotion} accent="#e879f9" />
-      <Kpi label="Today $"  value={todayCost == null ? "—" : `$${safeNum(todayCost).toFixed(2)}`} accent="#34d399" />
+    <div className="relative z-10 flex items-stretch gap-2">
+      <div className="grow grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+        <Kpi label="Comments" value={total("comment_count")} accent="#22d3ee" />
+        <Kpi label="Viewers"  value={total("unique_viewers")} accent="#22d3ee" />
+        <Kpi label="Superchats" value={total("superchat_count")} accent="#fbbf24" />
+        <Kpi label="Super $"  value={`$${(safeNum(counts("ja")?.superchat_total) + safeNum(counts("en")?.superchat_total)).toFixed(0)}`} accent="#fbbf24" />
+        <Kpi label="Emotion"  value={emotion} accent="#e879f9" />
+        <Kpi label="Today $"  value={todayCost == null ? "—" : `$${safeNum(todayCost).toFixed(2)}`} accent="#34d399" />
+      </div>
+      <div className="flex flex-col items-end justify-center gap-0.5 pl-2 min-w-[120px]">
+        <div className="flex items-center gap-1.5 text-[10px]">
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-cyan-400 animate-pulse" : "bg-red-500"}`}
+            style={connected ? { boxShadow: "0 0 8px #22d3ee" } : {}} />
+          <span className={connected ? "text-cyan-300" : "text-red-400"}>
+            {connected ? "WS ONLINE" : "WS OFFLINE"}
+          </span>
+          {loading && <span className="text-text-faint">·</span>}
+        </div>
+        <div className="text-[11px] tabular-nums text-text-muted">
+          {new Date(nowMs).toLocaleTimeString()}
+        </div>
+      </div>
     </div>
   );
 }
@@ -697,130 +662,139 @@ function OrbitingDots() {
 }
 
 /* ============================================================= */
-/*  Channel radar (6 axes)                                        */
+/*  Timeframe chart (activity / viewers, selectable candle width) */
 /* ============================================================= */
 
-function ChannelRadar({
-  channel, data, nowMs,
-}: { channel: Channel; data: ChannelLive | null; nowMs: number }) {
-  const color = CHANNEL_COLOR[channel];
-  const events = data?.events ?? [];
-  const iters = data?.monitor?.directorIters ?? [];
-  const talker = data?.monitor?.talkerResults ?? [];
-  const counts = data?.monitor?.counts;
+const TIMEFRAMES: Array<{ label: string; bucketMinutes: number }> = [
+  { label: "1m",  bucketMinutes: 1 },
+  { label: "15m", bucketMinutes: 15 },
+  { label: "1h",  bucketMinutes: 60 },
+  { label: "4h",  bucketMinutes: 240 },
+  { label: "24h", bucketMinutes: 1440 },
+];
 
-  // Axes, each normalized to 0..100
-  const windowMs = 5 * 60_000;
-  const recent = events.filter(e => Date.parse(e.recorded_at) > nowMs - windowMs);
-  const recentComments = recent.filter(e => e.event_type === "comments").length;
-  const recentSpeaks = recent.filter(e => e.event_type === "speak").length;
+interface ActivitySeriesResp {
+  channel: Channel;
+  bucketMinutes: number;
+  buckets: number;
+  kind: "activity" | "viewers";
+  series: Array<{ t: number } & Record<string, number>>;
+}
 
-  const iters15 = iters.filter(i => Date.parse(i.created_at) > nowMs - 15 * 60_000).length;
-  const replyRate = talker.length === 0
-    ? 0
-    : talker.slice(0, 20).filter(t => Boolean(t.comment_text)).length / Math.min(20, talker.length);
-  const superchatRate = counts && safeNum(counts.comment_count) > 0
-    ? safeNum(counts.superchat_count) / safeNum(counts.comment_count)
-    : 0;
-  const avgCost = iters.slice(0, 10).reduce((s, i) => s + safeNum(i.cost), 0) / Math.max(1, iters.slice(0, 10).length);
+function refreshIntervalMs(bucketMinutes: number): number {
+  // Refresh ~1/10 of a bucket so the latest bar updates smoothly, clamped.
+  return Math.max(5_000, Math.min(bucketMinutes * 60_000 / 10, 60_000));
+}
 
-  const axes = [
-    { axis: "Chat",     value: Math.min(100, recentComments * 5) },
-    { axis: "Reply",    value: Math.round(replyRate * 100) },
-    { axis: "Tempo",    value: Math.min(100, iters15 * 10) },
-    { axis: "Super",    value: Math.round(superchatRate * 100) },
-    { axis: "Speak",    value: Math.min(100, recentSpeaks * 5) },
-    { axis: "Cost",     value: Math.min(100, avgCost * 1000) },
-  ];
+function TimeframeChart({
+  channel, kind, color,
+}: {
+  channel: Channel;
+  kind: "activity" | "viewers";
+  color: string;
+}) {
+  const [tfIdx, setTfIdx] = useState(0);
+  const tf = TIMEFRAMES[tfIdx]!;
+  const [data, setData] = useState<ActivitySeriesResp | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchOnce() {
+      try {
+        const d = await apiFetch<ActivitySeriesResp>(
+          `/stream/activity?channel=${channel}&kind=${kind}&bucketMinutes=${tf.bucketMinutes}&buckets=30`,
+          { silent: true },
+        );
+        if (!cancelled) setData(d);
+      } catch { /* ignore */ }
+    }
+    void fetchOnce();
+    const h = setInterval(fetchOnce, refreshIntervalMs(tf.bucketMinutes));
+    return () => { cancelled = true; clearInterval(h); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel, kind, tf.bucketMinutes]);
+
+  const gid = `tc-${channel}-${kind}-${color.replace("#", "")}`;
+  const series = data?.series ?? [];
+  const isActivity = kind === "activity";
 
   return (
-    <div className="h-full w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <RadarChart data={axes} cx="50%" cy="50%" outerRadius="78%">
-          <PolarGrid stroke={`${color}44`} />
-          <PolarAngleAxis dataKey="axis" tick={{ fill: `${color}`, fontSize: 10, fontWeight: 600 }} />
-          <PolarRadiusAxis tick={false} axisLine={false} domain={[0, 100]} />
-          <Radar
-            dataKey="value"
-            stroke={color}
-            fill={color}
-            fillOpacity={0.25}
-            strokeWidth={1.5}
-            isAnimationActive
-          />
-        </RadarChart>
-      </ResponsiveContainer>
+    <div className="flex flex-col h-full">
+      <div className="shrink-0 flex items-center gap-1 text-[10px] mb-1">
+        {TIMEFRAMES.map((t, i) => (
+          <button
+            key={t.label}
+            onClick={() => setTfIdx(i)}
+            className={[
+              "px-1.5 py-0.5 rounded tabular-nums tracking-wide transition",
+              i === tfIdx
+                ? "text-[#05070d] font-semibold"
+                : "text-text-muted hover:text-text",
+            ].join(" ")}
+            style={i === tfIdx ? { background: color, boxShadow: `0 0 8px ${color}aa` } : { background: "transparent" }}
+          >
+            {t.label}足
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 min-h-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity={0.55} />
+                <stop offset="100%" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id={`${gid}-b`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#c084fc" stopOpacity={0.45} />
+                <stop offset="100%" stopColor="#c084fc" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#ffffff10" vertical={false} />
+            <XAxis
+              dataKey="t"
+              tickFormatter={(v: number) => formatBucketTick(Number(v), tf.bucketMinutes)}
+              stroke="#64748b"
+              fontSize={9}
+              tickLine={false}
+              axisLine={false}
+              minTickGap={20}
+            />
+            <YAxis stroke="#64748b" fontSize={9} tickLine={false} axisLine={false} width={22} allowDecimals={false} />
+            <Tooltip
+              contentStyle={{ background: "#0b1120", border: `1px solid ${color}66`, fontSize: 11 }}
+              labelFormatter={(v) => new Date(Number(v)).toLocaleString()}
+            />
+            {isActivity ? (
+              <>
+                <Area type="monotone" dataKey="comments"   stroke={color}   strokeWidth={1.6} fill={`url(#${gid})`}   isAnimationActive={false} />
+                <Area type="monotone" dataKey="utterances" stroke="#c084fc" strokeWidth={1.2} fill={`url(#${gid}-b)`} isAnimationActive={false} />
+              </>
+            ) : (
+              <>
+                <Area type="monotone" dataKey="avg" stroke={color} strokeWidth={1.6} fill={`url(#${gid})`} isAnimationActive={false} />
+                <Area type="monotone" dataKey="max" stroke="#c084fc" strokeWidth={1.0} fill={`url(#${gid}-b)`} isAnimationActive={false} strokeDasharray="3 3" />
+              </>
+            )}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      {!isActivity && series.every(s => !s.max && !s.avg) && (
+        <div className="shrink-0 text-[9px] text-text-faint mt-0.5">viewers source未接続</div>
+      )}
     </div>
   );
 }
 
-/* ============================================================= */
-/*  Activity chart                                                */
-/* ============================================================= */
-
-interface ActivityPoint { t: number; comments: number; utterances: number; }
-
-function buildActivitySeries(events: StreamEvent[], nowMs: number): ActivityPoint[] {
-  const bucketMs = 60_000;
-  const spanMs = 30 * 60_000;
-  const start = Math.floor((nowMs - spanMs) / bucketMs) * bucketMs;
-  const buckets = new Map<number, ActivityPoint>();
-  for (let t = start; t <= nowMs; t += bucketMs) {
-    buckets.set(t, { t, comments: 0, utterances: 0 });
+function formatBucketTick(ms: number, bucketMinutes: number): string {
+  const d = new Date(ms);
+  if (bucketMinutes >= 1440) {
+    return d.toLocaleDateString([], { month: "2-digit", day: "2-digit" });
   }
-  for (const e of events) {
-    const at = Date.parse(e.recorded_at);
-    if (Number.isNaN(at) || at < start) continue;
-    const k = Math.floor(at / bucketMs) * bucketMs;
-    const b = buckets.get(k);
-    if (!b) continue;
-    if (e.event_type === "comments") b.comments += 1;
-    else if (e.event_type === "speak") b.utterances += 1;
+  if (bucketMinutes >= 60) {
+    return d.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit" });
   }
-  return [...buckets.values()];
-}
-
-function ActivityChart({
-  events, nowMs, color,
-}: { events: StreamEvent[]; nowMs: number; color: string }) {
-  const series = useMemo(() => buildActivitySeries(events, nowMs), [events, nowMs]);
-  const gid = `ch-${color.replace("#", "")}`;
-
-  return (
-    <div className="h-full w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-          <defs>
-            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.55} />
-              <stop offset="100%" stopColor={color} stopOpacity={0} />
-            </linearGradient>
-            <linearGradient id={`${gid}-u`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#c084fc" stopOpacity={0.45} />
-              <stop offset="100%" stopColor="#c084fc" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid stroke="#ffffff10" vertical={false} />
-          <XAxis
-            dataKey="t"
-            tickFormatter={(v: number) => formatTimeShort(v)}
-            stroke="#64748b"
-            fontSize={10}
-            tickLine={false}
-            axisLine={false}
-            minTickGap={32}
-          />
-          <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} width={22} allowDecimals={false} />
-          <Tooltip
-            contentStyle={{ background: "#0b1120", border: `1px solid ${color}66`, fontSize: 11 }}
-            labelFormatter={(v) => new Date(Number(v)).toLocaleTimeString()}
-          />
-          <Area type="monotone" dataKey="comments"   stroke={color}     strokeWidth={1.6} fill={`url(#${gid})`}   isAnimationActive={false} />
-          <Area type="monotone" dataKey="utterances" stroke="#c084fc" strokeWidth={1.6} fill={`url(#${gid}-u)`} isAnimationActive={false} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 /* ============================================================= */
@@ -1122,163 +1096,6 @@ function DirectorList({ byChannel }: { byChannel: Record<Channel, ChannelLive | 
           ))}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-/* ============================================================= */
-/*  TTS pipeline panel                                            */
-/* ============================================================= */
-
-function TtsPipeline({
-  byChannel, nowMs,
-}: { byChannel: Record<Channel, ChannelLive | null>; nowMs: number }) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {CHANNELS.map((ch) => {
-        const events = byChannel[ch]?.events ?? [];
-        const lastSpeak = [...events].reverse().find(e => e.event_type === "speak");
-        const lastDone = [...events].reverse().find(e => e.event_type === "speak_done");
-        const lastExpr = [...events].reverse().find(e => e.event_type === "expression");
-
-        const speakAt = lastSpeak ? Date.parse(lastSpeak.recorded_at) : 0;
-        const doneAt = lastDone ? Date.parse(lastDone.recorded_at) : 0;
-        const exprP = lastExpr?.payload as Record<string, unknown> | undefined;
-        const expression = exprP && typeof exprP["expression"] === "string" ? exprP["expression"] : null;
-
-        const sinceSpeak = speakAt ? nowMs - speakAt : null;
-        const sinceDone = doneAt ? nowMs - doneAt : null;
-        const playing = speakAt > doneAt;
-        const color = CHANNEL_COLOR[ch];
-        return (
-          <div key={ch} className="rounded-md border border-white/5 bg-white/[0.02] p-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="rounded px-1 text-[9px] font-semibold" style={{ color, background: `${color}18` }}>
-                {CHANNEL_LABEL[ch]}
-              </span>
-              {playing
-                ? <span className="text-[10px] text-cyan-300" style={{ textShadow: `0 0 6px ${color}` }}>● PLAYING</span>
-                : <span className="text-[10px] text-text-faint">○ idle</span>}
-            </div>
-            <div className="text-[11px] space-y-1">
-              <Row label="expression" value={expression ?? "—"} color="#c084fc" />
-              <Row label="last speak" value={sinceSpeak === null ? "—" : `${(sinceSpeak / 1000).toFixed(1)}s`} />
-              <Row label="last done"  value={sinceDone  === null ? "—" : `${(sinceDone  / 1000).toFixed(1)}s`} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function Row({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-text-muted">{label}</span>
-      <span className="tabular-nums font-medium" style={{ color: color ?? undefined }}>{value}</span>
-    </div>
-  );
-}
-
-/* ============================================================= */
-/*  Cost donut                                                    */
-/* ============================================================= */
-
-function CostDonut({ byChannel }: { byChannel: Record<Channel, ChannelLive | null> }) {
-  const bucket = { director: 0, talker: 0 };
-  for (const ch of CHANNELS) {
-    const iters = byChannel[ch]?.monitor?.directorIters ?? [];
-    const talker = byChannel[ch]?.monitor?.talkerResults ?? [];
-    for (const i of iters) bucket.director += safeNum(i.cost);
-    for (const t of talker) bucket.talker += safeNum(t.cost);
-  }
-  const data = [
-    { name: "Director", value: bucket.director },
-    { name: "Talker",   value: bucket.talker },
-  ];
-  const empty = data.every(d => d.value < 0.0001);
-  const colors = ["#fb7185", "#c084fc"];
-  const total = data.reduce((s, d) => s + d.value, 0);
-
-  if (empty) return <Empty label="no cost data yet" />;
-
-  return (
-    <div className="flex items-center gap-3">
-      <div className="relative h-40 w-40">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={data}
-              innerRadius="60%" outerRadius="88%"
-              paddingAngle={3}
-              dataKey="value"
-              stroke="none"
-            >
-              {data.map((_, i) => <Cell key={i} fill={colors[i]} />)}
-            </Pie>
-            <Tooltip
-              contentStyle={{ background: "#0b1120", border: "1px solid #fbbf2466", fontSize: 11 }}
-              formatter={(v) => `$${safeNum(v).toFixed(4)}`}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex items-center justify-center flex-col">
-          <div className="text-[9px] uppercase tracking-[0.2em] text-text-faint">Total</div>
-          <div className="text-lg font-bold tabular-nums text-amber-300" style={{ textShadow: "0 0 10px rgba(251,191,36,0.5)" }}>
-            ${total.toFixed(2)}
-          </div>
-        </div>
-      </div>
-      <div className="flex-1 space-y-1 text-[11px]">
-        {data.map((d, i) => (
-          <div key={d.name} className="flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full" style={{ background: colors[i], boxShadow: `0 0 4px ${colors[i]}` }} />
-            <span className="text-text-muted">{d.name}</span>
-            <span className="ml-auto tabular-nums font-medium" style={{ color: colors[i] }}>
-              ${d.value.toFixed(4)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================= */
-/*  Top supporters                                                */
-/* ============================================================= */
-
-function TopSupporters({ byChannel }: { byChannel: Record<Channel, ChannelLive | null> }) {
-  const byUser = new Map<string, { user: string; channel: Channel; amount: number; count: number }>();
-  for (const ch of CHANNELS) {
-    const comments = byChannel[ch]?.monitor?.comments ?? [];
-    for (const c of comments) {
-      if (!c.is_superchat) continue;
-      const key = `${ch}:${c.author_channel_id ?? c.display_name}`;
-      const prev = byUser.get(key) ?? { user: c.nickname || c.display_name, channel: ch, amount: 0, count: 0 };
-      prev.amount += safeNum(c.amount);
-      prev.count += 1;
-      byUser.set(key, prev);
-    }
-  }
-  const rows = [...byUser.values()].sort((a, b) => b.amount - a.amount).slice(0, 8);
-  if (rows.length === 0) return <Empty label="no superchats yet" />;
-  return (
-    <div className="space-y-1">
-      {rows.map((r, i) => (
-        <div key={i} className="flex items-center gap-2 rounded-md border border-white/5 bg-white/[0.02] px-2 py-1 text-[12px]">
-          <span className="text-text-faint tabular-nums w-4">{i + 1}</span>
-          <span className="rounded px-1 text-[9px] font-semibold" style={{ color: CHANNEL_COLOR[r.channel], background: `${CHANNEL_COLOR[r.channel]}18` }}>
-            {CHANNEL_LABEL[r.channel]}
-          </span>
-          <span className="truncate flex-1">{r.user}</span>
-          <span className="text-text-faint tabular-nums text-[10px]">×{r.count}</span>
-          <span className="tabular-nums font-medium text-amber-300" style={{ textShadow: "0 0 6px rgba(251,191,36,0.5)" }}>
-            ${r.amount.toFixed(0)}
-          </span>
-        </div>
-      ))}
     </div>
   );
 }
