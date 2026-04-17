@@ -245,68 +245,46 @@ export default function LiveStreamMonitorPage() {
   const { connected } = useAdminWs(onWs);
 
   return (
-    <div className="relative min-h-full">
+    <div className="relative h-full flex flex-col gap-2 overflow-hidden">
       <SciBg />
 
-      <div className="relative z-10 flex flex-col gap-4">
-        <Header connected={connected} loading={loading} nowMs={now} />
-        <TotalsBar byChannel={byChannel} yunaState={yunaState} />
+      <Header connected={connected} loading={loading} nowMs={now} />
+      <TotalsBar byChannel={byChannel} yunaState={yunaState} />
 
-        {/* Row 1: activity JA | hero center | activity EN */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <PanelFrame className="lg:col-span-4" title="JA Activity" accent={CHANNEL_COLOR.ja}>
-            <ActivityChart events={byChannel.ja?.events ?? []} nowMs={now} color={CHANNEL_COLOR.ja} />
-          </PanelFrame>
+      {/* main grid fills remaining height; 3 equal rows */}
+      <div className="relative z-10 flex-1 min-h-0 grid grid-cols-12 grid-rows-3 gap-2">
+        {/* Row 1 */}
+        <PanelFrame className="col-span-4 min-h-0" title="JA Activity" accent={CHANNEL_COLOR.ja}>
+          <ActivityChart events={byChannel.ja?.events ?? []} nowMs={now} color={CHANNEL_COLOR.ja} />
+        </PanelFrame>
+        <PanelFrame className="col-span-4 min-h-0" title="Session Core" accent="#a855f7">
+          <HeroCore byChannel={byChannel} yunaState={yunaState} nowMs={now} />
+        </PanelFrame>
+        <PanelFrame className="col-span-4 min-h-0" title="EN Activity" accent={CHANNEL_COLOR.en}>
+          <ActivityChart events={byChannel.en?.events ?? []} nowMs={now} color={CHANNEL_COLOR.en} />
+        </PanelFrame>
 
-          <PanelFrame className="lg:col-span-4" title="Session Core" accent="#a855f7">
-            <HeroCore byChannel={byChannel} yunaState={yunaState} nowMs={now} />
-          </PanelFrame>
+        {/* Row 2 */}
+        <PanelFrame className="col-span-3 min-h-0" title="JA Pulse" accent={CHANNEL_COLOR.ja}>
+          <ChannelRadar channel="ja" data={byChannel.ja} nowMs={now} />
+        </PanelFrame>
+        <PanelFrame className="col-span-6 min-h-0" title="Theme Timeline">
+          <DualThemeTimeline byChannel={byChannel} />
+        </PanelFrame>
+        <PanelFrame className="col-span-3 min-h-0" title="EN Pulse" accent={CHANNEL_COLOR.en}>
+          <ChannelRadar channel="en" data={byChannel.en} nowMs={now} />
+        </PanelFrame>
 
-          <PanelFrame className="lg:col-span-4" title="EN Activity" accent={CHANNEL_COLOR.en}>
-            <ActivityChart events={byChannel.en?.events ?? []} nowMs={now} color={CHANNEL_COLOR.en} />
-          </PanelFrame>
-        </div>
-
-        {/* Row 2: radar ja | theme timeline | radar en */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <PanelFrame className="lg:col-span-3" title="JA Pulse" accent={CHANNEL_COLOR.ja}>
-            <ChannelRadar channel="ja" data={byChannel.ja} nowMs={now} />
-          </PanelFrame>
-
-          <PanelFrame className="lg:col-span-6" title="Theme Timeline">
-            <DualThemeTimeline byChannel={byChannel} />
-          </PanelFrame>
-
-          <PanelFrame className="lg:col-span-3" title="EN Pulse" accent={CHANNEL_COLOR.en}>
-            <ChannelRadar channel="en" data={byChannel.en} nowMs={now} />
-          </PanelFrame>
-        </div>
-
-        {/* Row 3: comments | utterances | director */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <PanelFrame className="lg:col-span-4" title="Comments" accent="#38bdf8">
-            <CommentsFeed byChannel={byChannel} />
-          </PanelFrame>
-          <PanelFrame className="lg:col-span-4" title="YUNA Utterances" accent="#c084fc">
-            <UtterancesFeed byChannel={byChannel} />
-          </PanelFrame>
-          <PanelFrame className="lg:col-span-4" title="Director" accent="#fb7185">
-            <DirectorList byChannel={byChannel} />
-          </PanelFrame>
-        </div>
-
-        {/* Row 4: tts health | cost donut | top supporters */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <PanelFrame className="lg:col-span-4" title="TTS Pipeline" accent="#34d399">
-            <TtsPipeline byChannel={byChannel} nowMs={now} />
-          </PanelFrame>
-          <PanelFrame className="lg:col-span-4" title="Cost Breakdown" accent="#fbbf24">
-            <CostDonut byChannel={byChannel} />
-          </PanelFrame>
-          <PanelFrame className="lg:col-span-4" title="Top Supporters" accent="#f472b6">
-            <TopSupporters byChannel={byChannel} />
-          </PanelFrame>
-        </div>
+        {/* Row 3 */}
+        <PanelFrame className="col-span-4 min-h-0" title="Comments" accent="#38bdf8">
+          <CommentsFeed byChannel={byChannel} />
+        </PanelFrame>
+        <PanelFrame className="col-span-4 min-h-0" title="YUNA Utterances" accent="#c084fc">
+          <UtterancesFeed byChannel={byChannel} />
+        </PanelFrame>
+        <PanelFrame className="col-span-4 min-h-0" title="Director" accent="#fb7185">
+          <DirectorList byChannel={byChannel} />
+        </PanelFrame>
       </div>
     </div>
   );
@@ -330,7 +308,7 @@ function SciBg() {
     }));
   }, []);
   return (
-    <div className="pointer-events-none fixed inset-0 -z-0 overflow-hidden">
+    <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-lg">
       {/* base gradient */}
       <div className="absolute inset-0"
         style={{
@@ -393,8 +371,7 @@ function PanelFrame({
   return (
     <section
       className={[
-        "relative rounded-lg border border-white/10 bg-[#0b1120]/60 backdrop-blur-sm",
-        "shadow-[0_0_40px_rgba(0,0,0,0.4)_inset,0_0_20px_rgba(34,211,238,0.04)]",
+        "relative z-10 rounded-lg border border-white/10 bg-[#0b1120]/60 backdrop-blur-sm flex flex-col overflow-hidden",
         className,
       ].join(" ")}
       style={{ boxShadow: `0 0 24px -10px ${accent}55, 0 0 1px ${accent}55 inset` }}
@@ -406,10 +383,10 @@ function PanelFrame({
       <CornerBracket pos="br" color={accent} />
 
       {title && (
-        <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+        <div className="flex items-center gap-2 px-3 pt-2 pb-1 shrink-0">
           <span className="inline-block h-1 w-1 rounded-full" style={{ background: accent, boxShadow: `0 0 8px ${accent}` }} />
           <div
-            className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted"
+            className="text-[10px] font-semibold uppercase tracking-[0.2em]"
             style={{ color: `${accent}cc` }}
           >
             {title}
@@ -417,7 +394,7 @@ function PanelFrame({
           <div className="ml-auto h-px flex-1" style={{ background: `linear-gradient(90deg, ${accent}33, transparent)` }} />
         </div>
       )}
-      <div className="p-3 pt-1">{children}</div>
+      <div className="flex-1 min-h-0 px-3 pb-3 pt-1 overflow-hidden">{children}</div>
     </section>
   );
 }
@@ -451,7 +428,7 @@ function Header({
   connected, loading, nowMs,
 }: { connected: boolean; loading: boolean; nowMs: number }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="relative z-10 flex items-center justify-between">
       <div className="flex items-baseline gap-3">
         <h1
           className="text-2xl font-bold tracking-[0.25em] uppercase"
@@ -492,7 +469,7 @@ function TotalsBar({
   const todayCost = yunaState?.todayCostUsd;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div className="relative z-10 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
       <Kpi label="Comments" value={total("comment_count")} accent="#22d3ee" />
       <Kpi label="Viewers"  value={total("unique_viewers")} accent="#22d3ee" />
       <Kpi label="Superchats" value={total("superchat_count")} accent="#fbbf24" />
@@ -549,16 +526,16 @@ function HeroCore({
   const category = yunaState?.emotion?.category ?? "—";
   const totalComments = safeNum(byChannel.ja?.monitor?.counts?.comment_count) + safeNum(byChannel.en?.monitor?.counts?.comment_count);
 
-  // SVG arc
+  // SVG arc (viewBox coords; rendered responsively)
   const size = 240;
   const cx = size / 2, cy = size / 2;
   const outerR = 104, innerR = 82;
   const stroke = 8;
 
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <div className="flex flex-col items-center h-full gap-2">
+      <div className="relative flex-1 min-h-0 aspect-square">
+        <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} preserveAspectRatio="xMidYMid meet">
           <defs>
             <linearGradient id="ringJa" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor={CHANNEL_COLOR.ja} />
@@ -759,7 +736,7 @@ function ChannelRadar({
   ];
 
   return (
-    <div className="h-48 w-full">
+    <div className="h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
         <RadarChart data={axes} cx="50%" cy="50%" outerRadius="78%">
           <PolarGrid stroke={`${color}44`} />
@@ -812,7 +789,7 @@ function ActivityChart({
   const gid = `ch-${color.replace("#", "")}`;
 
   return (
-    <div className="h-48 w-full">
+    <div className="h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
           <defs>
@@ -1000,7 +977,7 @@ function CommentsFeed({ byChannel }: { byChannel: Record<Channel, ChannelLive | 
   const rows = mergeComments(byChannel);
   if (rows.length === 0) return <Empty label="no comments yet" />;
   return (
-    <div className="flex flex-col gap-1 overflow-y-auto max-h-64 scrollbar-none">
+    <div className="flex flex-col gap-1 overflow-y-auto h-full scrollbar-none">
       {rows.map((c) => (
         <div
           key={c.id}
@@ -1070,7 +1047,7 @@ function UtterancesFeed({ byChannel }: { byChannel: Record<Channel, ChannelLive 
   const top = rows.slice(0, 25);
   if (top.length === 0) return <Empty label="no utterances yet" />;
   return (
-    <div className="flex flex-col gap-1 overflow-y-auto max-h-64 scrollbar-none">
+    <div className="flex flex-col gap-1 overflow-y-auto h-full scrollbar-none">
       {top.map((r) => (
         <div key={r.id} className="rounded-md border border-white/5 bg-white/[0.02] px-2 py-1 hover:bg-white/[0.05] transition">
           <div className="flex items-center gap-1.5 text-[10px]">
@@ -1124,7 +1101,7 @@ function DirectorList({ byChannel }: { byChannel: Record<Channel, ChannelLive | 
   if (top.length === 0) return <Empty label="no director activity yet" />;
 
   return (
-    <div className="overflow-y-auto max-h-64 scrollbar-none">
+    <div className="overflow-y-auto h-full scrollbar-none">
       <table className="w-full text-[11px]">
         <tbody>
           {top.map((r) => (
