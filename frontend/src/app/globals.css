@@ -70,3 +70,8 @@ body {
     display: none;
   }
 }
+
+@keyframes sci-twinkle {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.9; }
+}
