@@ -242,11 +242,11 @@ export default function OllamaChatPage() {
               </div>
             </div>
           ))}
-          {streamText && (
+          {generating && (
             <div className="flex justify-start">
               <div className="max-w-[75%] rounded-2xl rounded-bl-md bg-surface px-4 py-3 text-sm text-text whitespace-pre-wrap">
-                {streamText}
-                <span className="animate-pulse">▍</span>
+                {streamText || <span className="animate-pulse text-text-muted">...</span>}
+                {streamText && <span className="animate-pulse">▍</span>}
               </div>
             </div>
           )}
