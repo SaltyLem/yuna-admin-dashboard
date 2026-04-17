@@ -736,11 +736,13 @@ function refreshIntervalMs(bucketMinutes: number): number {
 }
 
 function TimeframeChart({
-  channel, kind, color,
+  channel, kind, color, compact = false,
 }: {
   channel: Channel;
   kind: "activity" | "viewers";
   color: string;
+  /** When true, hide the timeframe tab bar and shrink paddings/axes. */
+  compact?: boolean;
 }) {
   // Default to 15m: 30 × 15 min = 7.5 hour window, captures a typical
   // recent session even if YUNA is currently idle. 1m is for live mode.
@@ -785,23 +787,25 @@ function TimeframeChart({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="shrink-0 flex items-center gap-1 text-[10px] mb-1">
-        {TIMEFRAMES.map((t, i) => (
-          <button
-            key={t.label}
-            onClick={() => setTfIdx(i)}
-            className={[
-              "px-1.5 py-0.5 rounded tabular-nums tracking-wide transition",
-              i === tfIdx
-                ? "text-[#05070d] font-semibold"
-                : "text-text-muted hover:text-text",
-            ].join(" ")}
-            style={i === tfIdx ? { background: color, boxShadow: `0 0 8px ${color}aa` } : { background: "transparent" }}
-          >
-            {t.label}足
-          </button>
-        ))}
-      </div>
+      {!compact && (
+        <div className="shrink-0 flex items-center gap-1 text-[10px] mb-1">
+          {TIMEFRAMES.map((t, i) => (
+            <button
+              key={t.label}
+              onClick={() => setTfIdx(i)}
+              className={[
+                "px-1.5 py-0.5 rounded tabular-nums tracking-wide transition",
+                i === tfIdx
+                  ? "text-[#05070d] font-semibold"
+                  : "text-text-muted hover:text-text",
+              ].join(" ")}
+              style={i === tfIdx ? { background: color, boxShadow: `0 0 8px ${color}aa` } : { background: "transparent" }}
+            >
+              {t.label}足
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex-1 min-h-0 relative">
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint">
@@ -884,7 +888,7 @@ interface CombinedPoint {
   en_max: number;
 }
 
-function CombinedViewersChart() {
+function CombinedViewersChart({ compact = false }: { compact?: boolean } = {}) {
   const [tfIdx, setTfIdx] = useState(1); // 15m default
   const tf = TIMEFRAMES[tfIdx]!;
   const [series, setSeries] = useState<CombinedPoint[]>([]);
@@ -925,31 +929,33 @@ function CombinedViewersChart() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="shrink-0 flex items-center justify-between gap-2 mb-1">
-        <div className="flex items-center gap-3 text-[10px]">
-          <Legend color={CHANNEL_COLOR.ja} label="JA" />
-          <Legend color={CHANNEL_COLOR.en} label="EN" />
+      {!compact && (
+        <div className="shrink-0 flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-3 text-[10px]">
+            <Legend color={CHANNEL_COLOR.ja} label="JA" />
+            <Legend color={CHANNEL_COLOR.en} label="EN" />
+          </div>
+          <div className="flex items-center gap-1 text-[10px]">
+            {TIMEFRAMES.map((t, i) => (
+              <button
+                key={t.label}
+                onClick={() => setTfIdx(i)}
+                className={[
+                  "px-1.5 py-0.5 rounded tabular-nums tracking-wide transition",
+                  i === tfIdx ? "text-[#05070d] font-semibold" : "text-text-muted hover:text-text",
+                ].join(" ")}
+                style={
+                  i === tfIdx
+                    ? { background: "#e879f9", boxShadow: "0 0 8px #e879f9aa" }
+                    : { background: "transparent" }
+                }
+              >
+                {t.label}足
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex items-center gap-1 text-[10px]">
-          {TIMEFRAMES.map((t, i) => (
-            <button
-              key={t.label}
-              onClick={() => setTfIdx(i)}
-              className={[
-                "px-1.5 py-0.5 rounded tabular-nums tracking-wide transition",
-                i === tfIdx ? "text-[#05070d] font-semibold" : "text-text-muted hover:text-text",
-              ].join(" ")}
-              style={
-                i === tfIdx
-                  ? { background: "#e879f9", boxShadow: "0 0 8px #e879f9aa" }
-                  : { background: "transparent" }
-              }
-            >
-              {t.label}足
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
       <div className="flex-1 min-h-0 relative">
         {loading && (
@@ -1029,8 +1035,10 @@ function ChartsGallery() {
 
   return (
     <div className="flex h-full gap-2">
-      {/* Mini rail */}
-      <div className="shrink-0 w-32 flex flex-col gap-1.5">
+      {/* Mini rail — full TimeframeChart / CombinedViewersChart with
+          tabs hidden (compact). Tile becomes clickable via an absolute
+          overlay so the chart itself still interacts (tooltip etc). */}
+      <div className="shrink-0 w-60 flex flex-col gap-2">
         {CHARTS.map((c) => (
           <MiniChartTile
             key={c.id}
@@ -1063,22 +1071,18 @@ function MiniChartTile({
   onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={[
-        "flex-1 min-h-0 rounded-md border px-2 py-1.5 text-left transition relative overflow-hidden",
-        selected ? "" : "hover:bg-white/[0.03]",
-      ].join(" ")}
+    <div
+      className="relative flex-1 min-h-0 rounded-md border overflow-hidden transition flex flex-col"
       style={{
-        background: selected ? `${chart.accent}14` : "#0b112066",
+        background: selected ? `${chart.accent}10` : "#0b112066",
         borderColor: selected ? `${chart.accent}99` : "#ffffff10",
         boxShadow: selected ? `0 0 16px -4px ${chart.accent}88, 0 0 1px ${chart.accent}88 inset` : undefined,
       }}
     >
-      <div className="flex items-center justify-between mb-1">
+      <div className="shrink-0 flex items-center justify-between px-2 pt-1.5">
         <span
           className="text-[10px] font-semibold uppercase tracking-[0.15em]"
-          style={{ color: selected ? chart.accent : `${chart.accent}99` }}
+          style={{ color: selected ? chart.accent : `${chart.accent}cc` }}
         >
           {chart.label}
         </span>
@@ -1086,68 +1090,23 @@ function MiniChartTile({
           <span className="text-[8px] text-text-faint uppercase tracking-wider">viewing</span>
         )}
       </div>
-      <div className="h-10">
-        <MiniChartPreview chart={chart} />
+      <div className="flex-1 min-h-0 px-1.5 pb-1.5">
+        {chart.id === "viewers" && <CombinedViewersChart compact />}
+        {chart.id === "ja-activity" && (
+          <TimeframeChart channel="ja" kind="activity" color={CHANNEL_COLOR.ja} compact />
+        )}
+        {chart.id === "en-activity" && (
+          <TimeframeChart channel="en" kind="activity" color={CHANNEL_COLOR.en} compact />
+        )}
       </div>
-    </button>
-  );
-}
-
-/**
- * Lightweight preview: single area, last 30 × 1m buckets, no axes or
- * tooltip. Fetches its own data on a slow cadence (30s) since it's
- * just a glance-at-shape thumbnail.
- */
-function MiniChartPreview({ chart }: { chart: ChartMeta }) {
-  const [series, setSeries] = useState<Array<{ t: number; v: number }>>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchOnce() {
-      try {
-        if (chart.id === "viewers") {
-          const [ja, en] = await Promise.all([
-            apiFetch<ActivitySeriesResp>(`/stream/activity?channel=ja&kind=viewers&bucketMinutes=1&buckets=30`, { silent: true }),
-            apiFetch<ActivitySeriesResp>(`/stream/activity?channel=en&kind=viewers&bucketMinutes=1&buckets=30`, { silent: true }),
-          ]);
-          if (cancelled) return;
-          const enByT = new Map(en.series.map(s => [s.t, s]));
-          setSeries(ja.series.map(j => ({
-            t: j.t,
-            v: Number(j["avg"] ?? 0) + Number(enByT.get(j.t)?.["avg"] ?? 0),
-          })));
-        } else {
-          const channel = chart.id === "ja-activity" ? "ja" : "en";
-          const d = await apiFetch<ActivitySeriesResp>(
-            `/stream/activity?channel=${channel}&kind=activity&bucketMinutes=1&buckets=30`,
-            { silent: true },
-          );
-          if (cancelled) return;
-          setSeries(d.series.map(s => ({
-            t: s.t,
-            v: Number(s["comments"] ?? 0) + Number(s["utterances"] ?? 0),
-          })));
-        }
-      } catch { /* ignore */ }
-    }
-    void fetchOnce();
-    const h = setInterval(fetchOnce, 30_000);
-    return () => { cancelled = true; clearInterval(h); };
-  }, [chart.id]);
-
-  const gid = `mini-${chart.id}`;
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor={chart.accent} stopOpacity={0.7} />
-            <stop offset="100%" stopColor={chart.accent} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <Area type="monotone" dataKey="v" stroke={chart.accent} strokeWidth={1.2} fill={`url(#${gid})`} isAnimationActive={false} />
-      </AreaChart>
-    </ResponsiveContainer>
+      {/* click overlay — doesn't block tooltip */}
+      <button
+        onClick={onClick}
+        className="absolute inset-0 cursor-pointer"
+        aria-label={`Show ${chart.label}`}
+        style={{ background: "transparent" }}
+      />
+    </div>
   );
 }
 
