@@ -126,6 +126,8 @@ export default function OllamaChatPage() {
           model: session.model,
           messages: session.messages,
           stream: true,
+          options: { num_predict: 1024 },
+          think: false,
         }),
       });
 
