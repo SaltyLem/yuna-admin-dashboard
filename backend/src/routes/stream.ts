@@ -117,14 +117,14 @@ router.get("/activity", async (req: Request, res: Response) => {
       // viewers event carries a numeric count in payload.count
       const rows = await query<{ bucket_start: Date; avg_count: string; max_count: string }>(
         `WITH range AS (
-           SELECT NOW() - ($1 * $2 || ' minutes')::interval AS start_at,
+           SELECT NOW() - ($1::int * $2::int || ' minutes')::interval AS start_at,
                   NOW() AS end_at
          ),
          g AS (
            SELECT generate_series(
              (SELECT start_at FROM range),
              (SELECT end_at FROM range),
-             ($1 || ' minutes')::interval
+             ($1::int || ' minutes')::interval
            ) AS bucket_start
          )
          SELECT g.bucket_start,
@@ -135,7 +135,7 @@ router.get("/activity", async (req: Request, res: Response) => {
            ON se.channel = $3
           AND se.event_type = 'viewers'
           AND se.recorded_at >= g.bucket_start
-          AND se.recorded_at <  g.bucket_start + ($1 || ' minutes')::interval
+          AND se.recorded_at <  g.bucket_start + ($1::int || ' minutes')::interval
          GROUP BY g.bucket_start
          ORDER BY g.bucket_start ASC`,
         [bucketMinutes, buckets, channel],
@@ -155,14 +155,14 @@ router.get("/activity", async (req: Request, res: Response) => {
     // activity = count of comments + count of speak events
     const rows = await query<{ bucket_start: Date; comments: string; utterances: string }>(
       `WITH range AS (
-         SELECT NOW() - ($1 * $2 || ' minutes')::interval AS start_at,
+         SELECT NOW() - ($1::int * $2::int || ' minutes')::interval AS start_at,
                 NOW() AS end_at
        ),
        g AS (
          SELECT generate_series(
            (SELECT start_at FROM range),
            (SELECT end_at FROM range),
-           ($1 || ' minutes')::interval
+           ($1::int || ' minutes')::interval
          ) AS bucket_start
        )
        SELECT g.bucket_start,
@@ -172,7 +172,7 @@ router.get("/activity", async (req: Request, res: Response) => {
        LEFT JOIN stream_events se
          ON se.channel = $3
         AND se.recorded_at >= g.bucket_start
-        AND se.recorded_at <  g.bucket_start + ($1 || ' minutes')::interval
+        AND se.recorded_at <  g.bucket_start + ($1::int || ' minutes')::interval
        GROUP BY g.bucket_start
        ORDER BY g.bucket_start ASC`,
       [bucketMinutes, buckets, channel],
