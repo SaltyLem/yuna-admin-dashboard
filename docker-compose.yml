@@ -41,6 +41,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://yuna_admin:yuna_admin_local@db:5432/yuna_admin
       - YUNA_API_URL=http://host.docker.internal:4000
+      - OLLAMA_URL=http://192.168.11.17:11434
     volumes:
       - ./backend/src:/app/src
       - dev-admin-data:/data

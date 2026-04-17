@@ -110,6 +110,42 @@ app.use("/pending-actions", pendingActionsRoutes);
 app.use("/cycle-blocks", cycleBlocksRoutes);
 app.use("/api-usage", apiUsageRoutes);
 
+// ── Ollama proxy ──
+const OLLAMA_URL = process.env["OLLAMA_URL"] ?? "http://192.168.11.17:11434";
+
+app.post("/ollama/api/:endpoint", async (req: Request, res: Response) => {
+  const path = `api/${req.params.endpoint}`;
+  try {
+    const upstream = await fetch(`${OLLAMA_URL}/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+    });
+
+    if (req.body?.stream) {
+      res.setHeader("Content-Type", "application/x-ndjson");
+      res.setHeader("Transfer-Encoding", "chunked");
+      const reader = upstream.body?.getReader();
+      if (!reader) { res.status(500).end(); return; }
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+        res.end();
+      };
+      req.on("close", () => reader.cancel());
+      await pump();
+    } else {
+      const data = await upstream.text();
+      res.status(upstream.status).set("Content-Type", "application/json").send(data);
+    }
+  } catch (err) {
+    res.status(502).json({ error: String(err) });
+  }
+});
+
 // ── WebSocket (認証付き) ──
 const wss = new WebSocketServer({ server, path: "/ws" });
 const wsClients = new Set<WebSocket>();

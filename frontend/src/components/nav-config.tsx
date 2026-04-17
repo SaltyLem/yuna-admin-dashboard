@@ -5,6 +5,7 @@ import {
   CoinsIcon,
   BrainIcon,
   SettingsIcon,
+  ChatIcon,
 } from "./icons";
 
 export interface NavChild {
@@ -73,6 +74,14 @@ export const NAV: NavItem[] = [
           { href: "/yuna/memory/semantic-facts", label: "Semantic facts" },
         ],
       },
+    ],
+  },
+  {
+    href: "/chat",
+    label: "Chat",
+    icon: <ChatIcon />,
+    children: [
+      { href: "/chat/ollama", label: "Ollama" },
     ],
   },
   { href: "/settings", label: "Settings", icon: <SettingsIcon /> },
