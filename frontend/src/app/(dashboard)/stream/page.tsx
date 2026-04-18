@@ -65,7 +65,9 @@ interface CommentRow {
   nickname: string | null;
   text: string;
   is_superchat: boolean;
-  amount: number | null;
+  amount_raw: string | null;
+  amount_currency: string | null;
+  amount_usd: number | null;
   commented_at: string;
   author_channel_id: string | null;
   person_id: string | null;
@@ -126,85 +128,6 @@ interface YunaState {
 function safeNum(x: unknown): number {
   const n = typeof x === "string" ? parseFloat(x) : typeof x === "number" ? x : NaN;
   return Number.isFinite(n) ? n : 0;
-}
-
-/* ---------- FX helpers (Super $ KPI currency conversion) ---------- */
-
-// Rates come from yuna-api /api/admin/forex via the admin-backend
-// /forex proxy. If yuna-api is down the whole streaming system is
-// broken anyway, so no local fallback is maintained — toUsd simply
-// returns null until rates resolve.
-type FxRates = Record<string, number>;
-
-// Currency glyph → ISO. Ambiguous symbols ($ / ¥ can mean JPY or CNY)
-// default to the most common YouTube Superchat interpretation.
-const CURRENCY_GLYPHS: Array<[RegExp, string]> = [
-  [/JP¥|JPY|円|¥/, "JPY"],
-  [/US\$|USD|\$/, "USD"],
-  [/EUR|€/,       "EUR"],
-  [/GBP|£/,       "GBP"],
-  [/KRW|₩/,       "KRW"],
-  [/TWD|NT\$/,    "TWD"],
-  [/HKD|HK\$/,    "HKD"],
-  [/CNY|RMB/,     "CNY"],
-  [/AUD|A\$/,     "AUD"],
-  [/CAD|C\$/,     "CAD"],
-  [/NZD|NZ\$/,    "NZD"],
-  [/SGD|S\$/,     "SGD"],
-  [/THB|฿/,       "THB"],
-  [/PHP|₱/,       "PHP"],
-  [/INR|₹/,       "INR"],
-  [/BRL|R\$/,     "BRL"],
-  [/MXN/,         "MXN"],
-  [/IDR|Rp/,      "IDR"],
-  [/VND|₫/,       "VND"],
-  [/MYR|RM/,      "MYR"],
-];
-
-/**
- * Parse an amount string like "¥500" or "$5.00" or "JPY 500" into a
- * USD value using the supplied rate table. Rates are expressed as
- * "units per 1 USD" (so JPY=150 means 1 USD = 150 JPY).
- * Returns null if amount can't be parsed or rates aren't loaded yet.
- */
-function toUsd(raw: unknown, rates: FxRates | null): number | null {
-  if (!rates) return null;
-  if (raw == null) return null;
-  if (typeof raw === "number") {
-    return Number.isFinite(raw) ? raw : null;
-  }
-  if (typeof raw !== "string") return null;
-  const s = raw.trim();
-  if (!s) return null;
-
-  let code = "USD";
-  for (const [re, c] of CURRENCY_GLYPHS) {
-    if (re.test(s)) { code = c; break; }
-  }
-  const num = parseFloat(s.replace(/[^0-9.]/g, ""));
-  if (!Number.isFinite(num)) return null;
-
-  const rate = rates[code];
-  if (rate == null || rate === 0) return null;
-  return num / rate;
-}
-
-/** Fetches /forex on mount + every 10min. Returns null until resolved. */
-function useFxRates(): FxRates | null {
-  const [rates, setRates] = useState<FxRates | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      try {
-        const d = await apiFetch<{ rates: FxRates }>("/forex", { silent: true });
-        if (!cancelled && d.rates) setRates(d.rates);
-      } catch { /* leave previous (possibly null) */ }
-    }
-    void run();
-    const h = setInterval(run, 10 * 60_000);
-    return () => { cancelled = true; clearInterval(h); };
-  }, []);
-  return rates;
 }
 
 function clamp01(x: number): number {
@@ -462,7 +385,7 @@ function CommentsFeedColumn({ channel, data, loading }: { channel: Channel; data
           ].join(" ")}
         >
           <div className="flex items-center gap-1 text-[9px]">
-            {c.isSuperchat && <span className="text-amber-300">★ {c.amount ?? ""}</span>}
+            {c.isSuperchat && <span className="text-amber-300">★ {c.amountRaw ?? ""}</span>}
             <span className="text-text-muted truncate">{c.user}</span>
             <span className="ml-auto tabular-nums text-text-faint">{formatTimeShort(c.at)}</span>
           </div>
@@ -717,7 +640,9 @@ interface PersonDetailResp {
   comments: Array<{
     text: string;
     is_superchat: boolean;
-    amount: string | null;
+    amount_raw: string | null;
+    amount_currency: string | null;
+    amount_usd: number | null;
     commented_at: string;
     display_name: string;
     nickname: string | null;
@@ -765,7 +690,7 @@ function CommentDetail({ comment }: { comment: UiComment }) {
             style={{ color: CHANNEL_COLOR[comment.channel], background: `${CHANNEL_COLOR[comment.channel]}18` }}>
             {CHANNEL_LABEL[comment.channel]}
           </span>
-          {comment.isSuperchat && <span className="text-amber-300">★ {comment.amount ?? ""}</span>}
+          {comment.isSuperchat && <span className="text-amber-300">★ {comment.amountRaw ?? ""}</span>}
           <span className="tabular-nums">{new Date(comment.at).toLocaleString()}</span>
         </div>
         <div className="text-text whitespace-pre-wrap">{comment.text}</div>
@@ -856,7 +781,7 @@ function CommentDetail({ comment }: { comment: UiComment }) {
                         style={{ color: row.language === "ja" ? CHANNEL_COLOR.ja : CHANNEL_COLOR.en, background: `${row.language === "ja" ? CHANNEL_COLOR.ja : CHANNEL_COLOR.en}18` }}>
                         {row.language.toUpperCase()}
                       </span>
-                      {row.is_superchat && <span className="text-amber-300">★ {row.amount ?? ""}</span>}
+                      {row.is_superchat && <span className="text-amber-300">★ {row.amount_raw ?? ""}</span>}
                       {row.title && <span className="truncate max-w-[200px]" title={row.title}>{row.title}</span>}
                       <span className="ml-auto tabular-nums">{new Date(row.commented_at).toLocaleString()}</span>
                     </div>
@@ -1078,7 +1003,6 @@ function StatsPanel({
   loading: boolean;
   nowMs: number;
 }) {
-  const fxRates = useFxRates();
   const channelInfo = (ch: Channel) => {
     const c = byChannel[ch];
     const status = c?.status?.status ?? "idle";
@@ -1100,7 +1024,6 @@ function StatsPanel({
   const monitorSum = (key: keyof Counts) =>
     safeNum(counts("ja")?.[key]) + safeNum(counts("en")?.[key]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- fxRates intentionally in deps
   const aggFromEvents = useMemo(() => {
     const agg = { comments: 0, superchat: 0, superUsd: 0, viewers: new Set<string>() };
     for (const ch of CHANNELS) {
@@ -1116,13 +1039,15 @@ function StatsPanel({
         if (key) agg.viewers.add(`${ch}:${key}`);
         if (p["isSuperchat"]) {
           agg.superchat += 1;
-          const usd = toUsd(p["amount"], fxRates);
-          if (usd !== null) agg.superUsd += usd;
+          // Scraper resolves USD up front and publishes it on the
+          // payload; no per-display FX conversion needed.
+          const usd = typeof p["amount_usd"] === "number" ? p["amount_usd"] : null;
+          if (usd != null && Number.isFinite(usd)) agg.superUsd += usd;
         }
       }
     }
     return { comments: agg.comments, superchat: agg.superchat, superUsd: agg.superUsd, viewers: agg.viewers.size };
-  }, [byChannel, fxRates]);
+  }, [byChannel]);
 
   const totalComments = aggFromEvents.comments || monitorSum("comment_count");
   const totalViewers  = aggFromEvents.viewers  || monitorSum("unique_viewers");
@@ -1764,7 +1689,10 @@ interface UiComment {
   user: string;
   text: string;
   isSuperchat: boolean;
-  amount?: string | number;
+  /** Original display string — e.g. "¥500" */
+  amountRaw?: string | null;
+  /** USD-normalized value (scraper set at ingestion) */
+  amountUsd?: number | null;
   at: number;
   authorChannelId?: string | null;
   personId?: string | null;
@@ -1795,7 +1723,8 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
         user: m.nickname || m.display_name,
         text: m.text,
         isSuperchat: m.is_superchat,
-        amount: m.amount ?? undefined,
+        amountRaw: m.amount_raw ?? null,
+        amountUsd: m.amount_usd ?? null,
         at,
         authorChannelId: m.author_channel_id ?? null,
         personId: m.person_id ?? null,
@@ -1822,7 +1751,8 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
         user: String(p["user"] ?? "?"),
         text,
         isSuperchat: Boolean(p["isSuperchat"]),
-        amount: p["amount"] as string | undefined,
+        amountRaw: typeof p["amount_raw"] === "string" ? p["amount_raw"] : null,
+        amountUsd: typeof p["amount_usd"] === "number" ? p["amount_usd"] : null,
         at,
         authorChannelId: typeof p["authorChannelId"] === "string" ? p["authorChannelId"] : null,
         personId: typeof p["personId"] === "string" ? p["personId"] : null,
@@ -1854,7 +1784,7 @@ function CommentsFeed({ byChannel }: { byChannel: Record<Channel, ChannelLive | 
             >
               {CHANNEL_LABEL[c.channel]}
             </span>
-            {c.isSuperchat && <span className="text-amber-300">★ {c.amount ?? ""}</span>}
+            {c.isSuperchat && <span className="text-amber-300">★ {c.amountRaw ?? ""}</span>}
             <span className="text-text-muted truncate">{c.user}</span>
             <span className="ml-auto tabular-nums text-text-faint">{formatTimeShort(c.at)}</span>
           </div>
