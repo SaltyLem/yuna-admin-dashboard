@@ -144,6 +144,9 @@ export const NAV: NavItem[] = [
     children: [
       { href: "/worker/crawl", label: "Crawl (articles)" },
       { href: "/worker/crawl/sources", label: "Crawl sources" },
+      { href: "/worker/tweets", label: "Tweets" },
+      { href: "/worker/donations", label: "Donations" },
+      { href: "/worker/engagement", label: "Video engagement" },
     ],
   },
   { href: "/metrics", label: "Metrics", icon: <GaugeIcon /> },
