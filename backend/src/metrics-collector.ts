@@ -15,7 +15,6 @@
 
 import http from "http";
 import { promises as fs } from "fs";
-import { spawn } from "child_process";
 import { query } from "./db/client.js";
 
 const HOST_PROC = "/host/proc";
@@ -101,34 +100,91 @@ async function readMemory(): Promise<{ usedMb: number; totalMb: number; pct: num
 
 interface GpuRow { index: string; utilPct: number; vramUsedMb: number; vramTotalMb: number; tempC: number; powerW: number; }
 
-async function readGpu(): Promise<GpuRow[]> {
+/**
+ * Run nvidia-smi inside the GPU-equipped container via the Docker
+ * Engine API (our container doesn't have the docker CLI; it only has
+ * the socket). Two-step flow: create an exec with the command, then
+ * start it and drain the demuxed stdout/stderr stream.
+ */
+function dockerExec(containerName: string, cmd: string[]): Promise<string> {
   return new Promise((resolve) => {
-    const p = spawn("docker", [
-      "exec", GPU_CONTAINER,
-      "nvidia-smi",
-      "--query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
-      "--format=csv,noheader,nounits",
-    ]);
-    let out = "";
-    p.stdout.on("data", (d) => { out += d.toString(); });
-    p.on("close", (code) => {
-      if (code !== 0) return resolve([]);
-      const rows: GpuRow[] = [];
-      for (const line of out.trim().split("\n")) {
-        const parts = line.split(",").map(s => s.trim());
-        if (parts.length < 5) continue;
-        const [index, util, vUsed, vTotal, temp, power] = parts;
-        const utilPct = parseFloat(util ?? "") || 0;
-        const vramUsedMb = parseFloat(vUsed ?? "") || 0;
-        const vramTotalMb = parseFloat(vTotal ?? "") || 0;
-        const tempC = parseFloat(temp ?? "") || 0;
-        const powerW = parseFloat(power ?? "") || 0;
-        rows.push({ index: index ?? "0", utilPct, vramUsedMb, vramTotalMb, tempC, powerW });
-      }
-      resolve(rows);
+    // Step 1: create exec
+    const createBody = JSON.stringify({
+      AttachStdout: true, AttachStderr: true, Tty: false, Cmd: cmd,
     });
-    p.on("error", () => resolve([]));
+    const create = http.request({
+      socketPath: DOCKER_SOCK,
+      path: `/containers/${encodeURIComponent(containerName)}/exec`,
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(createBody) },
+    }, (res) => {
+      let body = "";
+      res.on("data", (c) => { body += c.toString(); });
+      res.on("end", () => {
+        if (!res.statusCode || res.statusCode >= 300) return resolve("");
+        let execId: string;
+        try { execId = (JSON.parse(body) as { Id: string }).Id; }
+        catch { return resolve(""); }
+
+        // Step 2: start exec and read the multiplexed stream
+        const startBody = JSON.stringify({ Detach: false, Tty: false });
+        const start = http.request({
+          socketPath: DOCKER_SOCK,
+          path: `/exec/${execId}/start`,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(startBody),
+          },
+        }, (startRes) => {
+          const chunks: Buffer[] = [];
+          startRes.on("data", (c: Buffer) => chunks.push(c));
+          startRes.on("end", () => {
+            // Docker demux: each frame is 8-byte header + payload. We
+            // concat payload bytes from stdout/stderr blindly — for
+            // nvidia-smi's short CSV output this is fine.
+            const buf = Buffer.concat(chunks);
+            let i = 0; let text = "";
+            while (i + 8 <= buf.length) {
+              const size = buf.readUInt32BE(i + 4);
+              const payload = buf.slice(i + 8, i + 8 + size);
+              text += payload.toString("utf8");
+              i += 8 + size;
+            }
+            resolve(text);
+          });
+        });
+        start.on("error", () => resolve(""));
+        start.write(startBody);
+        start.end();
+      });
+    });
+    create.on("error", () => resolve(""));
+    create.write(createBody);
+    create.end();
   });
+}
+
+async function readGpu(): Promise<GpuRow[]> {
+  const out = await dockerExec(GPU_CONTAINER, [
+    "nvidia-smi",
+    "--query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+    "--format=csv,noheader,nounits",
+  ]);
+  const rows: GpuRow[] = [];
+  for (const line of out.trim().split("\n")) {
+    if (!line) continue;
+    const parts = line.split(",").map(s => s.trim());
+    if (parts.length < 5) continue;
+    const [index, util, vUsed, vTotal, temp, power] = parts;
+    const utilPct = parseFloat(util ?? "") || 0;
+    const vramUsedMb = parseFloat(vUsed ?? "") || 0;
+    const vramTotalMb = parseFloat(vTotal ?? "") || 0;
+    const tempC = parseFloat(temp ?? "") || 0;
+    const powerW = parseFloat(power ?? "") || 0;
+    rows.push({ index: index ?? "0", utilPct, vramUsedMb, vramTotalMb, tempC, powerW });
+  }
+  return rows;
 }
 
 /* ──────────────────── Docker container stats ─────────────── */
