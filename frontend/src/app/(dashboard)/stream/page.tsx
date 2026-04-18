@@ -457,13 +457,13 @@ function DirectorColumn({ channel, data, loading }: { channel: Channel; data: Ch
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
       .slice(0, 12)
       .map((it) => {
-        const actions = it.actions as Record<string, unknown> | null;
+        const info = extractDirectorInfo(it);
         return {
           id: `${it.created_at}-${it.iteration}`,
           at: Date.parse(it.created_at),
-          theme: actions && typeof actions["currentTheme"] === "string" ? actions["currentTheme"] as string : "—",
-          pick: actions && typeof actions["pickComments"] === "number" ? actions["pickComments"] as number : 0,
-          close: Boolean(actions && actions["shouldClose"]),
+          theme: info.theme ?? "—",
+          pick: info.pickComments ?? 0,
+          close: info.shouldClose,
           emergency: Boolean(it.emergency_reason),
           cost: safeNum(it.cost),
           iter: it.iteration,
@@ -1132,12 +1132,63 @@ function buildThemeHistory(iters: DirectorIter[]): ThemeSegment[] {
 }
 
 function extractTheme(it: DirectorIter): string | null {
+  return extractDirectorInfo(it).theme ?? null;
+}
+
+/**
+ * yuna-core saves director output inside action_results[0].result as a
+ * JSON string (see Yuna/src/cognition/stream/programs/chat/director/*).
+ * Shape: `[{ tool: "director", params: {}, result: '{"currentTheme":...}' }]`
+ * This helper normalizes both shapes (stringified payload + legacy
+ * object-in-actions) and returns just the bits the UI needs.
+ */
+function extractDirectorInfo(it: DirectorIter): {
+  theme: string | null;
+  themeDirection: string | null;
+  pickComments: number | null;
+  shouldClose: boolean;
+} {
+  const result = {
+    theme: null as string | null,
+    themeDirection: null as string | null,
+    pickComments: null as number | null,
+    shouldClose: false,
+  };
+
+  // Legacy: actions was an object with currentTheme directly.
   const actions = it.actions as unknown;
-  if (actions && typeof actions === "object" && "currentTheme" in actions) {
+  if (actions && typeof actions === "object" && !Array.isArray(actions) && "currentTheme" in actions) {
     const v = (actions as { currentTheme?: unknown }).currentTheme;
-    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "string" && v.trim()) result.theme = v.trim();
   }
-  return null;
+
+  // Current format: action_results[0].result is a JSON-stringified
+  // payload { currentTheme, themeDirection, pickComments, shouldClose }.
+  const ar = it.action_results as unknown;
+  if (Array.isArray(ar) && ar.length > 0) {
+    const first = ar[0] as { result?: unknown };
+    const raw = first?.result;
+    let parsed: Record<string, unknown> | null = null;
+    if (typeof raw === "string") {
+      try { parsed = JSON.parse(raw) as Record<string, unknown>; } catch { /* ignore */ }
+    } else if (raw && typeof raw === "object") {
+      parsed = raw as Record<string, unknown>;
+    }
+    if (parsed) {
+      if (typeof parsed["currentTheme"] === "string" && parsed["currentTheme"].trim()) {
+        result.theme = parsed["currentTheme"].trim();
+      }
+      if (typeof parsed["themeDirection"] === "string") {
+        result.themeDirection = parsed["themeDirection"];
+      }
+      if (typeof parsed["pickComments"] === "number") {
+        result.pickComments = parsed["pickComments"];
+      }
+      result.shouldClose = Boolean(parsed["shouldClose"]);
+    }
+  }
+
+  return result;
 }
 
 function DualThemeTimeline({ byChannel }: { byChannel: Record<Channel, ChannelLive | null> }) {
