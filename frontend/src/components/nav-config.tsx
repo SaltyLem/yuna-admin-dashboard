@@ -9,6 +9,16 @@ import {
   LogIcon,
 } from "./icons";
 
+function GaugeIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 14l3-5" />
+      <circle cx="12" cy="14" r="8" />
+      <path d="M4 14a8 8 0 0 1 16 0" />
+    </svg>
+  );
+}
+
 export interface NavChild {
   href: string;
   label: string;
@@ -85,6 +95,7 @@ export const NAV: NavItem[] = [
       { href: "/chat/ollama", label: "Ollama" },
     ],
   },
+  { href: "/metrics", label: "Metrics", icon: <GaugeIcon /> },
   { href: "/log", label: "Log", icon: <LogIcon /> },
   { href: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];

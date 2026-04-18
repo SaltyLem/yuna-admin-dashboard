@@ -5,7 +5,9 @@ import commentsRoutes from "./routes/comments.js";
 import personsRoutes from "./routes/persons.js";
 import streamRoutes from "./routes/stream.js";
 import forexRoutes from "./routes/forex.js";
+import metricsRoutes from "./routes/metrics.js";
 import { primeForex } from "./forex-client.js";
+import { startMetricsCollector } from "./metrics-collector.js";
 import autoReplyRoutes from "./routes/auto-reply.js";
 import aapRoutes from "./routes/additional-auto-play.js";
 import programsRoutes from "./routes/programs.js";
@@ -120,6 +122,7 @@ app.use("/comments", commentsRoutes);
 app.use("/stream", streamRoutes);
 app.use("/persons", personsRoutes);
 app.use("/forex", forexRoutes);
+app.use("/metrics", metricsRoutes);
 app.use("/auto-reply", autoReplyRoutes);
 app.use("/additional-auto-play", aapRoutes);
 app.use("/goals", goalsRoutes);
@@ -344,6 +347,9 @@ startRedisSubscriber().catch((err) => {
 
 // Warm the FX cache so the first dummy superchat doesn't race.
 primeForex();
+
+// Start host/GPU/container metrics collector (writes to metrics_samples).
+startMetricsCollector();
 
 // ── stream_events retention (nightly) ──
 // speak payloads in particular are big — keep 30 days of history so the
