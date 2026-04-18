@@ -153,8 +153,11 @@ function computeStats(series: SeriesPoint[] | null): SeriesStats | null {
 /*  page                                                          */
 /* ============================================================= */
 
+type RightChartId = "util" | "temp" | "power";
+
 export default function MetricsPage() {
   const [rangeIdx, setRangeIdx] = useState(2);
+  const [rightSelected, setRightSelected] = useState<RightChartId>("util");
   const range = RANGES[rangeIdx]!;
   const latest = useLatest();
   const containers = useContainers();
@@ -245,13 +248,44 @@ export default function MetricsPage() {
         </div>
 
         <div className="col-span-12 xl:col-span-7 flex flex-col gap-3">
-          <UtilizationCard range={range} cpuNow={cpuNow} gpuNow={gpu0Util} memNow={memPct} />
-
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          {/* Main (selected) chart */}
+          {rightSelected === "util" && (
+            <UtilizationCard range={range} cpuNow={cpuNow} gpuNow={gpu0Util} memNow={memPct} />
+          )}
+          {rightSelected === "temp" && (
             <ChartWithStats title="GPU Temp" accent="#fb7185" unit="°C"
                             kind="gpu" metric="temp_c" subject="0" range={range} colorFn={tempColor} thresholdLines={[60, 75]} />
+          )}
+          {rightSelected === "power" && (
             <ChartWithStats title="GPU Power" accent="#fbbf24" unit="W"
                             kind="gpu" metric="power_w" subject="0" range={range} colorFn={powerColor} thresholdLines={[200, 300]} />
+          )}
+
+          {/* Mini rail (3 across) */}
+          <div className="grid grid-cols-3 gap-3">
+            <MiniChartCard
+              id="util" label="Utilization" accent="#22d3ee"
+              selected={rightSelected === "util"}
+              onSelect={() => setRightSelected("util")}
+              range={range}
+              overlay
+            />
+            <MiniChartCard
+              id="temp" label="GPU Temp" accent="#fb7185" unit="°C"
+              selected={rightSelected === "temp"}
+              onSelect={() => setRightSelected("temp")}
+              range={range}
+              kind="gpu" metric="temp_c" subject="0"
+              value={gpu0Temp} colorFn={tempColor} fixed={0}
+            />
+            <MiniChartCard
+              id="power" label="GPU Power" accent="#fbbf24" unit="W"
+              selected={rightSelected === "power"}
+              onSelect={() => setRightSelected("power")}
+              range={range}
+              kind="gpu" metric="power_w" subject="0"
+              value={gpu0Power} colorFn={powerColor} fixed={0}
+            />
           </div>
         </div>
       </div>
@@ -703,6 +737,125 @@ function ChartWithStats({
         </ResponsiveContainer>
       </div>
     </Panel>
+  );
+}
+
+/* ============================================================= */
+/*  MiniChartCard — clickable preview for right-side rail         */
+/* ============================================================= */
+
+function MiniChartCard(props: {
+  id: RightChartId;
+  label: string;
+  accent: string;
+  unit?: string;
+  selected: boolean;
+  onSelect: () => void;
+  range: typeof RANGES[number];
+} & (
+  | { overlay: true; kind?: never; metric?: never; subject?: never; value?: never; colorFn?: never; fixed?: never }
+  | { overlay?: false; kind: string; metric: string; subject: string | null; value: number | null; colorFn: (v: number | null) => string; fixed: number }
+)) {
+  const { id, label, accent, unit = "", selected, onSelect, range } = props;
+
+  if (props.overlay) {
+    return <MiniUtilCard label={label} accent={accent} selected={selected} onSelect={onSelect} range={range} />;
+  }
+
+  const { kind, metric, subject, value, colorFn, fixed } = props;
+  const series = useSeries(kind, metric, subject, range.rangeMinutes, range.bucketSeconds);
+  const color = colorFn(value);
+  const gid = `mini-${id}`;
+
+  return (
+    <button
+      onClick={onSelect}
+      className="relative rounded-lg border overflow-hidden text-left transition focus:outline-none flex flex-col"
+      style={{
+        background: selected
+          ? `linear-gradient(180deg, ${color}14 0%, #0b1120cc 70%)`
+          : `linear-gradient(180deg, ${color}06 0%, #0b1120cc 70%)`,
+        borderColor: selected ? `${color}aa` : `${color}33`,
+        boxShadow: selected
+          ? `0 0 16px -4px ${color}aa, 0 0 1px ${color}99 inset`
+          : `0 0 8px -8px ${color}44, 0 0 1px ${color}22 inset`,
+        minHeight: 88,
+      }}
+    >
+      <span
+        className="absolute left-0 top-0 bottom-0 w-[2px]"
+        style={{ background: selected ? color : "transparent", boxShadow: selected ? `0 0 8px ${color}` : undefined }}
+      />
+      <div className="px-3 pt-2 flex items-center justify-between gap-1">
+        <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: `${color}cc` }}>{label}</div>
+        <div className="tabular-nums text-sm font-bold leading-none" style={{ color, textShadow: `0 0 8px ${color}66` }}>
+          {value == null ? "—" : value.toFixed(fixed)}<span className="text-[10px] opacity-60 ml-0.5">{unit}</span>
+        </div>
+      </div>
+      <div className="flex-1 min-h-[36px] mt-1">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={series ?? []} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity={0.55} />
+                <stop offset="100%" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <Area type="monotone" dataKey="avg" stroke={color} strokeWidth={1.2} fill={`url(#${gid})`} isAnimationActive={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </button>
+  );
+}
+
+function MiniUtilCard({
+  label, accent, selected, onSelect, range,
+}: {
+  label: string; accent: string; selected: boolean; onSelect: () => void; range: typeof RANGES[number];
+}) {
+  const cpu = useSeries("cpu", "usage_pct", null, range.rangeMinutes, range.bucketSeconds);
+  const gpu = useSeries("gpu", "usage_pct", "0", range.rangeMinutes, range.bucketSeconds);
+  const mem = useSeries("memory", "pct", null, range.rangeMinutes, range.bucketSeconds);
+  const series = useMemo(() => mergeSeries({ cpu, gpu, mem }), [cpu, gpu, mem]);
+
+  return (
+    <button
+      onClick={onSelect}
+      className="relative rounded-lg border overflow-hidden text-left transition focus:outline-none flex flex-col"
+      style={{
+        background: selected
+          ? `linear-gradient(180deg, ${accent}14 0%, #0b1120cc 70%)`
+          : `linear-gradient(180deg, ${accent}06 0%, #0b1120cc 70%)`,
+        borderColor: selected ? `${accent}aa` : `${accent}33`,
+        boxShadow: selected
+          ? `0 0 16px -4px ${accent}aa, 0 0 1px ${accent}99 inset`
+          : `0 0 8px -8px ${accent}44, 0 0 1px ${accent}22 inset`,
+        minHeight: 88,
+      }}
+    >
+      <span
+        className="absolute left-0 top-0 bottom-0 w-[2px]"
+        style={{ background: selected ? accent : "transparent", boxShadow: selected ? `0 0 8px ${accent}` : undefined }}
+      />
+      <div className="px-3 pt-2 flex items-center justify-between gap-1">
+        <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: `${accent}cc` }}>{label}</div>
+        <div className="flex items-center gap-2 text-[9px]">
+          <span className="inline-flex items-center gap-0.5"><span className="h-1 w-1 rounded-full" style={{ background: "#22d3ee" }} /><span className="text-text-faint">CPU</span></span>
+          <span className="inline-flex items-center gap-0.5"><span className="h-1 w-1 rounded-full" style={{ background: "#a855f7" }} /><span className="text-text-faint">GPU</span></span>
+          <span className="inline-flex items-center gap-0.5"><span className="h-1 w-1 rounded-full" style={{ background: "#38bdf8" }} /><span className="text-text-faint">MEM</span></span>
+        </div>
+      </div>
+      <div className="flex-1 min-h-[36px] mt-1">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={series} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+            <Line type="monotone" dataKey="cpu" stroke="#22d3ee" strokeWidth={1.2} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="gpu" stroke="#a855f7" strokeWidth={1.2} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="mem" stroke="#38bdf8" strokeWidth={1} dot={false} isAnimationActive={false} strokeDasharray="3 2" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </button>
   );
 }
 
