@@ -27,15 +27,16 @@ const CHANNELS: Channel[] = ["ja", "en"];
 
 router.get("/live-state", async (_req: Request, res: Response) => {
   const now = new Date();
-  const sinceMs = 60 * 60 * 1000;
+  // 24h window so the feed still shows yesterday's stream even when
+  // YUNA is idle right now. Retention on stream_events is 30d so we
+  // could go wider; 24h is a sane default.
+  const sinceMs = 24 * 60 * 60 * 1000;
   const since = new Date(now.getTime() - sinceMs);
 
   try {
     const perChannel = await Promise.all(
       CHANNELS.map(async (channel) => {
-        const sessionId = getCurrentStreamSessionId(channel);
-
-        // Last status per channel (even if older than 1h).
+        // Last status per channel (even if older than window).
         const latestStatus = await query<{ payload: unknown; recorded_at: Date }>(
           `SELECT payload, recorded_at
            FROM stream_events
@@ -45,7 +46,7 @@ router.get("/live-state", async (_req: Request, res: Response) => {
           [channel],
         );
 
-        // Last hour of events on this channel.
+        // Window of events on this channel.
         const events = await query<{
           id: number;
           event_type: string;
@@ -60,6 +61,23 @@ router.get("/live-state", async (_req: Request, res: Response) => {
            ORDER BY recorded_at ASC`,
           [channel, since],
         );
+
+        // Session id: first try the in-memory tracker (updated from
+        // status events that carry sessionId). If it's null — which is
+        // the common case since prism-stream's status payloads don't
+        // include sessionId — fall back to yuna-api's most recent
+        // session for this language. That lets the feeds surface the
+        // last stream's director/talker/comment history even when
+        // YUNA is currently idle.
+        let sessionId: string | null = getCurrentStreamSessionId(channel);
+        if (!sessionId) {
+          try {
+            const latest = await yunaApi<{ streams: Array<{ session_id: string }> }>(
+              `/streams/latest?limit=1&language=${channel}`,
+            );
+            sessionId = latest.streams[0]?.session_id ?? null;
+          } catch { /* ignore — leave as null */ }
+        }
 
         let monitor: unknown = null;
         if (sessionId) {
