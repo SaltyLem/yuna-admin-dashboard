@@ -12,13 +12,17 @@ interface Source {
   keywords: string[]; last_crawled_at: string | null; created_at: string;
 }
 
+interface Stat { id: number; name: string; count1h: number; count1d: number; countAll: number }
+
 function fmtTime(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+type SourceWithStats = Source & { count1h: number; count1d: number; countAll: number };
+
 export default function CrawlSourcesPage() {
-  const [rows, setRows] = useState<Source[]>([]);
+  const [rows, setRows] = useState<SourceWithStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState("created_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -26,8 +30,22 @@ export default function CrawlSourcesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await apiFetch<{ sources: Source[] }>("/crawl/sources");
-      const sorted = [...d.sources].sort((a, b) => {
+      const [s, st] = await Promise.all([
+        apiFetch<{ sources: Source[] }>("/crawl/sources"),
+        apiFetch<{ stats: Stat[] }>("/crawl/articles/stats").catch(() => ({ stats: [] as Stat[] })),
+      ]);
+      const byId = new Map<number, Stat>();
+      for (const r of st.stats) byId.set(r.id, r);
+      const merged: SourceWithStats[] = s.sources.map(src => {
+        const hit = byId.get(src.id);
+        return {
+          ...src,
+          count1h:  hit?.count1h  ?? 0,
+          count1d:  hit?.count1d  ?? 0,
+          countAll: hit?.countAll ?? 0,
+        };
+      });
+      const sorted = [...merged].sort((a, b) => {
         const va = (a as unknown as Record<string, unknown>)[sortKey];
         const vb = (b as unknown as Record<string, unknown>)[sortKey];
         const na = typeof va === "string" ? Date.parse(va) || va : Number(va ?? 0);
@@ -46,7 +64,7 @@ export default function CrawlSourcesPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const columns: AdminColumn<Source>[] = [
+  const columns: AdminColumn<SourceWithStats>[] = [
     { key: "id", label: "ID", width: "w-14", sortable: true,
       cellClass: "text-text-faint font-mono tabular-nums",
       render: (s) => s.id },
@@ -62,6 +80,15 @@ export default function CrawlSourcesPage() {
       ) },
     { key: "name", label: "Name", sortable: true,
       render: (s) => <span className="text-text">{s.name}</span> },
+    { key: "count1h", label: "1h", width: "w-14", sortable: true,
+      cellClass: "text-right tabular-nums",
+      render: (s) => <span style={{ color: s.count1h > 0 ? "#22d3ee" : "#475569" }}>{s.count1h}</span> },
+    { key: "count1d", label: "24h", width: "w-14", sortable: true,
+      cellClass: "text-right tabular-nums",
+      render: (s) => <span style={{ color: s.count1d > 0 ? "#a855f7" : "#475569" }}>{s.count1d}</span> },
+    { key: "countAll", label: "All", width: "w-16", sortable: true,
+      cellClass: "text-right tabular-nums text-text-muted",
+      render: (s) => s.countAll.toLocaleString() },
     { key: "url", label: "URL",
       render: (s) => (
         <a
@@ -112,7 +139,7 @@ export default function CrawlSourcesPage() {
         </button>
       </header>
 
-      <AdminTable<Source>
+      <AdminTable<SourceWithStats>
         columns={columns}
         rows={rows}
         rowKey={(s) => s.id}
@@ -120,7 +147,7 @@ export default function CrawlSourcesPage() {
         emptyLabel={loading ? "Loading…" : "No sources"}
         sort={{ key: sortKey, dir: sortDir }}
         onSortChange={(k, d) => { setSortKey(k); setSortDir(d); }}
-        sortDescDefaults={["id", "last_crawled_at", "interval_minutes"]}
+        sortDescDefaults={["id", "last_crawled_at", "interval_minutes", "count1h", "count1d", "countAll"]}
         onRowClick={(s) => openEdit(s, load)}
       />
     </div>

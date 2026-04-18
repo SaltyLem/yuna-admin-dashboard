@@ -11,8 +11,7 @@ interface CrawlSource {
 }
 interface ArticleStat {
   id: number; name: string;
-  article_count: string | number;
-  latest_crawled: string | null;
+  count1h: number; count1d: number; countAll: number;
 }
 
 function fmtAgo(iso: string | null): string {
@@ -49,7 +48,14 @@ export default function WorkerOverviewPage() {
   }, []);
 
   const enabledCount = sources?.filter(s => s.enabled).length ?? 0;
-  const totalArticles = stats?.reduce((acc, r) => acc + (parseInt(String(r.article_count), 10) || 0), 0) ?? 0;
+  const totalArticles = stats?.reduce((acc, r) => acc + (r.countAll || 0), 0) ?? 0;
+  const total1h       = stats?.reduce((acc, r) => acc + (r.count1h  || 0), 0) ?? 0;
+  const total1d       = stats?.reduce((acc, r) => acc + (r.count1d  || 0), 0) ?? 0;
+  const latestCrawl   = sources?.reduce<string | null>((latest, s) => {
+    if (!s.last_crawled_at) return latest;
+    if (!latest) return s.last_crawled_at;
+    return Date.parse(s.last_crawled_at) > Date.parse(latest) ? s.last_crawled_at : latest;
+  }, null) ?? null;
 
   return (
     <div className="h-full flex flex-col gap-4 overflow-y-auto">
@@ -69,10 +75,12 @@ export default function WorkerOverviewPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <Kpi label="Sources (enabled)" value={`${enabledCount} / ${sources?.length ?? 0}`} color="#22d3ee" />
-          <Kpi label="Articles (total)"  value={totalArticles.toLocaleString()} color="#a855f7" />
-          <Kpi label="Latest crawl"      value={fmtAgo(stats?.[0]?.latest_crawled ?? null)} color="#fbbf24" big={false} />
+          <Kpi label="Articles 1h"       value={total1h.toLocaleString()} color="#22d3ee" />
+          <Kpi label="Articles 24h"      value={total1d.toLocaleString()} color="#a855f7" />
+          <Kpi label="Articles (all)"    value={totalArticles.toLocaleString()} color="#fbbf24" />
+          <Kpi label="Latest crawl"      value={fmtAgo(latestCrawl)} color="#f472b6" big={false} />
         </div>
 
         {stats && stats.length > 0 && (
@@ -82,13 +90,18 @@ export default function WorkerOverviewPage() {
               {stats.slice(0, 8).map(r => (
                 <li key={r.id} className="flex items-center gap-3 py-1.5 text-xs">
                   <span className="text-text truncate flex-1">{r.name}</span>
-                  <span className="tabular-nums text-text-muted w-16 text-right">
-                    {parseInt(String(r.article_count), 10).toLocaleString()} art
-                  </span>
-                  <span className="tabular-nums text-text-faint w-20 text-right">{fmtAgo(r.latest_crawled)}</span>
+                  <span className="tabular-nums w-10 text-right" style={{ color: r.count1h > 0 ? "#22d3ee" : "#475569" }}>{r.count1h}</span>
+                  <span className="tabular-nums w-10 text-right" style={{ color: r.count1d > 0 ? "#a855f7" : "#475569" }}>{r.count1d}</span>
+                  <span className="tabular-nums text-text-muted w-14 text-right">{r.countAll.toLocaleString()}</span>
                 </li>
               ))}
             </ul>
+            <div className="flex items-center gap-3 mt-1 text-[9px] uppercase tracking-wider text-text-faint">
+              <span className="flex-1" />
+              <span className="w-10 text-right">1h</span>
+              <span className="w-10 text-right">24h</span>
+              <span className="w-14 text-right">all</span>
+            </div>
           </div>
         )}
       </section>
