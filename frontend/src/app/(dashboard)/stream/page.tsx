@@ -130,15 +130,11 @@ function safeNum(x: unknown): number {
 
 /* ---------- FX helpers (Super $ KPI currency conversion) ---------- */
 
+// Rates come from yuna-api /api/admin/forex via the admin-backend
+// /forex proxy. If yuna-api is down the whole streaming system is
+// broken anyway, so no local fallback is maintained — toUsd simply
+// returns null until rates resolve.
 type FxRates = Record<string, number>;
-
-const FX_FALLBACK: FxRates = {
-  USD: 1, JPY: 150, EUR: 0.92, GBP: 0.79,
-  KRW: 1350, TWD: 32, HKD: 7.8, CNY: 7.2,
-  AUD: 1.55, CAD: 1.37, NZD: 1.70, SGD: 1.34,
-  THB: 36, PHP: 58, MYR: 4.7, IDR: 16000, VND: 25000,
-  INR: 84, BRL: 5.1, MXN: 17.5,
-};
 
 // Currency glyph → ISO. Ambiguous symbols ($ / ¥ can mean JPY or CNY)
 // default to the most common YouTube Superchat interpretation.
@@ -169,41 +165,40 @@ const CURRENCY_GLYPHS: Array<[RegExp, string]> = [
  * Parse an amount string like "¥500" or "$5.00" or "JPY 500" into a
  * USD value using the supplied rate table. Rates are expressed as
  * "units per 1 USD" (so JPY=150 means 1 USD = 150 JPY).
- * Returns null if amount can't be parsed at all.
+ * Returns null if amount can't be parsed or rates aren't loaded yet.
  */
-function toUsd(raw: unknown, rates: FxRates): number | null {
+function toUsd(raw: unknown, rates: FxRates | null): number | null {
+  if (!rates) return null;
   if (raw == null) return null;
   if (typeof raw === "number") {
-    // No currency context — assume USD, caller accepts.
     return Number.isFinite(raw) ? raw : null;
   }
   if (typeof raw !== "string") return null;
   const s = raw.trim();
   if (!s) return null;
 
-  // Detect currency code by scanning glyphs. First hit wins.
   let code = "USD";
   for (const [re, c] of CURRENCY_GLYPHS) {
     if (re.test(s)) { code = c; break; }
   }
-  // Strip non-numeric (keep digits + decimal point).
   const num = parseFloat(s.replace(/[^0-9.]/g, ""));
   if (!Number.isFinite(num)) return null;
 
-  const rate = rates[code] ?? FX_FALLBACK[code] ?? 1;
+  const rate = rates[code];
+  if (rate == null || rate === 0) return null;
   return num / rate;
 }
 
-/** Fetches /forex on mount + every 10min. Returns live rates (or fallback). */
-function useFxRates(): FxRates {
-  const [rates, setRates] = useState<FxRates>(FX_FALLBACK);
+/** Fetches /forex on mount + every 10min. Returns null until resolved. */
+function useFxRates(): FxRates | null {
+  const [rates, setRates] = useState<FxRates | null>(null);
   useEffect(() => {
     let cancelled = false;
     async function run() {
       try {
         const d = await apiFetch<{ rates: FxRates }>("/forex", { silent: true });
-        if (!cancelled && d.rates) setRates({ ...FX_FALLBACK, ...d.rates });
-      } catch { /* keep fallback */ }
+        if (!cancelled && d.rates) setRates(d.rates);
+      } catch { /* leave previous (possibly null) */ }
     }
     void run();
     const h = setInterval(run, 10 * 60_000);
