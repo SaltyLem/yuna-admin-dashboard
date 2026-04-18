@@ -53,11 +53,12 @@ export default function LogPage() {
 
   useEffect(() => { void loadContainers(); }, [loadContainers]);
 
-  // First-time default: open the first running container if no saved selection.
+  // First-time default: prism-yuna-1 if present, else first container.
   useEffect(() => {
     if (!loaded) return;
     if (panels.length === 0 && containers.length > 0) {
-      setPanels([containers[0]!.name]);
+      const yuna = containers.find((c) => c.name === "prism-yuna-1");
+      setPanels([yuna?.name ?? containers[0]!.name]);
     }
   }, [loaded, containers, panels.length]);
 

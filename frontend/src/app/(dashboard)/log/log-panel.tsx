@@ -172,7 +172,7 @@ export default function LogPanel({ container, className, onClose }: LogPanelProp
           const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
           if (!atBottom && follow) setFollow(false);
         }}
-        className="flex-1 min-h-0 overflow-y-auto bg-black/50 px-2 py-1 font-mono text-[11px] leading-tight"
+        className="flex-1 min-h-0 overflow-y-auto scrollbar-none bg-black/50 px-2 py-1 font-mono text-[11px] leading-tight"
       >
         {filtered.map((l, i) => (
           <div key={i} className={l.stream === "stderr" ? "text-red-400" : "text-text"}>
