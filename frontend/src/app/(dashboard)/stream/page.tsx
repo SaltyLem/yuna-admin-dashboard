@@ -128,6 +128,90 @@ function safeNum(x: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/* ---------- FX helpers (Super $ KPI currency conversion) ---------- */
+
+type FxRates = Record<string, number>;
+
+const FX_FALLBACK: FxRates = {
+  USD: 1, JPY: 150, EUR: 0.92, GBP: 0.79,
+  KRW: 1350, TWD: 32, HKD: 7.8, CNY: 7.2,
+  AUD: 1.55, CAD: 1.37, NZD: 1.70, SGD: 1.34,
+  THB: 36, PHP: 58, MYR: 4.7, IDR: 16000, VND: 25000,
+  INR: 84, BRL: 5.1, MXN: 17.5,
+};
+
+// Currency glyph → ISO. Ambiguous symbols ($ / ¥ can mean JPY or CNY)
+// default to the most common YouTube Superchat interpretation.
+const CURRENCY_GLYPHS: Array<[RegExp, string]> = [
+  [/JP¥|JPY|円|¥/, "JPY"],
+  [/US\$|USD|\$/, "USD"],
+  [/EUR|€/,       "EUR"],
+  [/GBP|£/,       "GBP"],
+  [/KRW|₩/,       "KRW"],
+  [/TWD|NT\$/,    "TWD"],
+  [/HKD|HK\$/,    "HKD"],
+  [/CNY|RMB/,     "CNY"],
+  [/AUD|A\$/,     "AUD"],
+  [/CAD|C\$/,     "CAD"],
+  [/NZD|NZ\$/,    "NZD"],
+  [/SGD|S\$/,     "SGD"],
+  [/THB|฿/,       "THB"],
+  [/PHP|₱/,       "PHP"],
+  [/INR|₹/,       "INR"],
+  [/BRL|R\$/,     "BRL"],
+  [/MXN/,         "MXN"],
+  [/IDR|Rp/,      "IDR"],
+  [/VND|₫/,       "VND"],
+  [/MYR|RM/,      "MYR"],
+];
+
+/**
+ * Parse an amount string like "¥500" or "$5.00" or "JPY 500" into a
+ * USD value using the supplied rate table. Rates are expressed as
+ * "units per 1 USD" (so JPY=150 means 1 USD = 150 JPY).
+ * Returns null if amount can't be parsed at all.
+ */
+function toUsd(raw: unknown, rates: FxRates): number | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") {
+    // No currency context — assume USD, caller accepts.
+    return Number.isFinite(raw) ? raw : null;
+  }
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+
+  // Detect currency code by scanning glyphs. First hit wins.
+  let code = "USD";
+  for (const [re, c] of CURRENCY_GLYPHS) {
+    if (re.test(s)) { code = c; break; }
+  }
+  // Strip non-numeric (keep digits + decimal point).
+  const num = parseFloat(s.replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(num)) return null;
+
+  const rate = rates[code] ?? FX_FALLBACK[code] ?? 1;
+  return num / rate;
+}
+
+/** Fetches /forex on mount + every 10min. Returns live rates (or fallback). */
+function useFxRates(): FxRates {
+  const [rates, setRates] = useState<FxRates>(FX_FALLBACK);
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      try {
+        const d = await apiFetch<{ rates: FxRates }>("/forex", { silent: true });
+        if (!cancelled && d.rates) setRates({ ...FX_FALLBACK, ...d.rates });
+      } catch { /* keep fallback */ }
+    }
+    void run();
+    const h = setInterval(run, 10 * 60_000);
+    return () => { cancelled = true; clearInterval(h); };
+  }, []);
+  return rates;
+}
+
 function clamp01(x: number): number {
   return Math.max(0, Math.min(1, x));
 }
@@ -999,6 +1083,7 @@ function StatsPanel({
   loading: boolean;
   nowMs: number;
 }) {
+  const fxRates = useFxRates();
   const channelInfo = (ch: Channel) => {
     const c = byChannel[ch];
     const status = c?.status?.status ?? "idle";
@@ -1020,6 +1105,7 @@ function StatsPanel({
   const monitorSum = (key: keyof Counts) =>
     safeNum(counts("ja")?.[key]) + safeNum(counts("en")?.[key]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fxRates intentionally in deps
   const aggFromEvents = useMemo(() => {
     const agg = { comments: 0, superchat: 0, superUsd: 0, viewers: new Set<string>() };
     for (const ch of CHANNELS) {
@@ -1035,15 +1121,13 @@ function StatsPanel({
         if (key) agg.viewers.add(`${ch}:${key}`);
         if (p["isSuperchat"]) {
           agg.superchat += 1;
-          const amt = typeof p["amount"] === "string"
-            ? parseFloat(p["amount"].replace(/[^0-9.]/g, ""))
-            : typeof p["amount"] === "number" ? p["amount"] : 0;
-          if (!Number.isNaN(amt)) agg.superUsd += amt;
+          const usd = toUsd(p["amount"], fxRates);
+          if (usd !== null) agg.superUsd += usd;
         }
       }
     }
     return { comments: agg.comments, superchat: agg.superchat, superUsd: agg.superUsd, viewers: agg.viewers.size };
-  }, [byChannel]);
+  }, [byChannel, fxRates]);
 
   const totalComments = aggFromEvents.comments || monitorSum("comment_count");
   const totalViewers  = aggFromEvents.viewers  || monitorSum("unique_viewers");
