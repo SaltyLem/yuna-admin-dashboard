@@ -410,10 +410,14 @@ function UtterancesFeedColumn({ channel, data, loading }: { channel: Channel; da
     const byKey = new Map<string, Row>();
     const put = (key: string, r: Row) => { if (!byKey.has(key)) byKey.set(key, r); };
     if (!data) return [];
+    // Dedup: same utterance text collapses across DB monitor talker
+    // result and WS speak event. Timestamp bucketed to a minute so
+    // DB-vs-WS clock skew doesn't split into two rows.
     (data.monitor?.talkerResults ?? []).forEach((t) => {
       const texts = t.utterances.map(u => u.text);
       const at = Date.parse(t.created_at);
-      const key = `${at}|${texts.join("|")}`;
+      const bucket = Math.floor(at / 60_000);
+      const key = `${bucket}|${texts.join("|")}`;
       put(key, {
         id: key,
         texts,
@@ -430,7 +434,8 @@ function UtterancesFeedColumn({ channel, data, loading }: { channel: Channel; da
       const us = Array.isArray(p["utterances"]) ? p["utterances"] as Array<Record<string, unknown>> : [];
       const texts = us.map(u => String(u["text"] ?? ""));
       const at = Date.parse(e.recorded_at);
-      const key = `${at}|${texts.join("|")}`;
+      const bucket = Math.floor(at / 60_000);
+      const key = `${bucket}|${texts.join("|")}`;
       put(key, {
         id: key,
         texts,
@@ -1698,9 +1703,13 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
     const c = byChannel[ch];
     if (!c) continue;
     for (const m of (c.monitor?.comments ?? [])) {
-      const extId = m.author_channel_id ?? m.display_name;
+      const idPart = m.author_channel_id ?? m.display_name ?? "?";
       const at = Date.parse(m.commented_at);
-      const key = `${ch}|${extId}|${at}|${m.text}`;
+      // Unified dedup key: same user + same text collapses across
+      // both sources (DB monitor + admin-db raw events). Timestamp
+      // is bucketed to a minute so DB-vs-WS clock skew doesn't split.
+      const bucket = Math.floor(at / 60_000);
+      const key = `${ch}|${idPart}|${m.text}|${bucket}`;
       put(key, {
         id: key,
         channel: ch,
@@ -1721,9 +1730,13 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
       const p = e.payload as Record<string, unknown> | null;
       if (!p) continue;
       const at = Date.parse(e.recorded_at);
-      const extId = typeof p["id"] === "string" ? p["id"] : `${String(p["user"] ?? "?")}@${at}`;
+      const idPart =
+        typeof p["authorChannelId"] === "string" ? p["authorChannelId"] :
+        typeof p["user"] === "string"            ? p["user"] :
+        "?";
       const text = String(p["text"] ?? "");
-      const key = `${ch}|${extId}|${text}`;
+      const bucket = Math.floor(at / 60_000);
+      const key = `${ch}|${idPart}|${text}|${bucket}`;
       put(key, {
         id: key,
         channel: ch,
