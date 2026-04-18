@@ -272,26 +272,26 @@ export default function LiveStreamMonitorPage() {
         <div className="flex-1 min-h-0 grid grid-cols-4 gap-2">
           <PanelFrame title="Theme Timeline" accent="#fbbf24">
             <ChannelSplit>
-              <ThemeTimelineColumn channel="ja" data={byChannel.ja} />
-              <ThemeTimelineColumn channel="en" data={byChannel.en} />
+              <ThemeTimelineColumn channel="ja" data={byChannel.ja} loading={loading} />
+              <ThemeTimelineColumn channel="en" data={byChannel.en} loading={loading} />
             </ChannelSplit>
           </PanelFrame>
           <PanelFrame title="Comments" accent="#38bdf8">
             <ChannelSplit>
-              <CommentsFeedColumn channel="ja" data={byChannel.ja} />
-              <CommentsFeedColumn channel="en" data={byChannel.en} />
+              <CommentsFeedColumn channel="ja" data={byChannel.ja} loading={loading} />
+              <CommentsFeedColumn channel="en" data={byChannel.en} loading={loading} />
             </ChannelSplit>
           </PanelFrame>
           <PanelFrame title="YUNA Utterances" accent="#c084fc">
             <ChannelSplit>
-              <UtterancesFeedColumn channel="ja" data={byChannel.ja} />
-              <UtterancesFeedColumn channel="en" data={byChannel.en} />
+              <UtterancesFeedColumn channel="ja" data={byChannel.ja} loading={loading} />
+              <UtterancesFeedColumn channel="en" data={byChannel.en} loading={loading} />
             </ChannelSplit>
           </PanelFrame>
           <PanelFrame title="Director" accent="#fb7185">
             <ChannelSplit>
-              <DirectorColumn channel="ja" data={byChannel.ja} />
-              <DirectorColumn channel="en" data={byChannel.en} />
+              <DirectorColumn channel="ja" data={byChannel.ja} loading={loading} />
+              <DirectorColumn channel="en" data={byChannel.en} loading={loading} />
             </ChannelSplit>
           </PanelFrame>
         </div>
@@ -321,12 +321,12 @@ function ChannelSplit({ children }: { children: [React.ReactNode, React.ReactNod
 /*  Per-channel column variants (used inside ChannelSplit)        */
 /* ============================================================= */
 
-function ThemeTimelineColumn({ channel, data }: { channel: Channel; data: ChannelLive | null }) {
+function ThemeTimelineColumn({ channel, data, loading }: { channel: Channel; data: ChannelLive | null; loading?: boolean }) {
   const segments = useMemo(
     () => buildThemeHistory(data?.monitor?.directorIters ?? []),
     [data?.monitor?.directorIters],
   );
-  if (segments.length === 0) return <Empty label="no themes" />;
+  if (segments.length === 0) return loading && !data ? <Loader /> : <Empty label="no themes" />;
   const first = segments[0]!.startedAt;
   const last = segments[segments.length - 1]!.endedAt ?? Date.now();
   const span = Math.max(1, last - first);
@@ -360,13 +360,13 @@ function ThemeTimelineColumn({ channel, data }: { channel: Channel; data: Channe
   );
 }
 
-function CommentsFeedColumn({ channel, data }: { channel: Channel; data: ChannelLive | null }) {
+function CommentsFeedColumn({ channel, data, loading }: { channel: Channel; data: ChannelLive | null; loading?: boolean }) {
   const rows = useMemo(() => {
     const filtered: Record<Channel, ChannelLive | null> = { ja: null, en: null };
     filtered[channel] = data;
     return mergeComments(filtered);
   }, [channel, data]);
-  if (rows.length === 0) return <Empty label="no comments" />;
+  if (rows.length === 0) return loading && !data ? <Loader /> : <Empty label="no comments" />;
   return (
     <div className="flex flex-col gap-1 overflow-y-auto h-full scrollbar-none">
       {rows.map((c) => (
@@ -391,7 +391,7 @@ function CommentsFeedColumn({ channel, data }: { channel: Channel; data: Channel
   );
 }
 
-function UtterancesFeedColumn({ channel, data }: { channel: Channel; data: ChannelLive | null }) {
+function UtterancesFeedColumn({ channel, data, loading }: { channel: Channel; data: ChannelLive | null; loading?: boolean }) {
   type Row = { id: string; texts: string[]; expression?: string; isReply: boolean; at: number };
   const rows = useMemo(() => {
     const byKey = new Map<string, Row>();
@@ -431,7 +431,7 @@ function UtterancesFeedColumn({ channel, data }: { channel: Channel; data: Chann
   // channel is only used to disambiguate keys if needed; prevent unused warn
   void channel;
 
-  if (rows.length === 0) return <Empty label="no utterances" />;
+  if (rows.length === 0) return loading && !data ? <Loader /> : <Empty label="no utterances" />;
   return (
     <div className="flex flex-col gap-1 overflow-y-auto h-full scrollbar-none">
       {rows.map((r) => (
@@ -450,7 +450,7 @@ function UtterancesFeedColumn({ channel, data }: { channel: Channel; data: Chann
   );
 }
 
-function DirectorColumn({ channel, data }: { channel: Channel; data: ChannelLive | null }) {
+function DirectorColumn({ channel, data, loading }: { channel: Channel; data: ChannelLive | null; loading?: boolean }) {
   const rows = useMemo(() => {
     const iters = data?.monitor?.directorIters ?? [];
     return [...iters]
@@ -471,7 +471,7 @@ function DirectorColumn({ channel, data }: { channel: Channel; data: ChannelLive
       });
   }, [data]);
   void channel;
-  if (rows.length === 0) return <Empty label="no director" />;
+  if (rows.length === 0) return loading && !data ? <Loader /> : <Empty label="no director" />;
   return (
     <div className="overflow-y-auto h-full scrollbar-none">
       <table className="w-full text-[10px]">
@@ -1445,6 +1445,18 @@ function Empty({ label }: { label: string }) {
   return (
     <div className="flex items-center justify-center h-24 text-[11px] text-text-faint italic">
       {label}
+    </div>
+  );
+}
+
+function Loader() {
+  return (
+    <div className="flex items-center justify-center h-full w-full">
+      <div className="flex items-center gap-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" style={{ boxShadow: "0 0 6px #22d3ee", animationDelay: "0ms" }} />
+        <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" style={{ boxShadow: "0 0 6px #22d3ee", animationDelay: "150ms" }} />
+        <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" style={{ boxShadow: "0 0 6px #22d3ee", animationDelay: "300ms" }} />
+      </div>
     </div>
   );
 }
