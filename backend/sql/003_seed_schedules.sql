@@ -1,6 +1,7 @@
--- Initial daily schedule seed.
+-- Initial daily schedule seed. Disabled for now.
 -- Idempotent: skips if (channel, repeat_type='daily', start_minutes, program) already exists.
 
+/*
 INSERT INTO stream_schedules (channel, repeat_type, start_minutes, end_minutes, program, label, enabled)
 SELECT * FROM (VALUES
   -- JA
@@ -23,3 +24,4 @@ WHERE NOT EXISTS (
     AND s.start_minutes = v.start_minutes
     AND s.program = v.program
 );
+*/
