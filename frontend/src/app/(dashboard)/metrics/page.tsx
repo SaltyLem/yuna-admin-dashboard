@@ -247,22 +247,24 @@ export default function MetricsPage() {
           </div>
         </div>
 
-        <div className="col-span-12 xl:col-span-7 flex flex-col gap-3">
-          {/* Main (selected) chart */}
-          {rightSelected === "util" && (
-            <UtilizationCard range={range} cpuNow={cpuNow} gpuNow={gpu0Util} memNow={memPct} />
-          )}
-          {rightSelected === "temp" && (
-            <ChartWithStats title="GPU Temp" accent="#fb7185" unit="°C"
-                            kind="gpu" metric="temp_c" subject="0" range={range} colorFn={tempColor} thresholdLines={[60, 75]} />
-          )}
-          {rightSelected === "power" && (
-            <ChartWithStats title="GPU Power" accent="#fbbf24" unit="W"
-                            kind="gpu" metric="power_w" subject="0" range={range} colorFn={powerColor} thresholdLines={[200, 300]} />
-          )}
+        <div className="col-span-12 xl:col-span-7 flex flex-col gap-3 min-h-0">
+          {/* Main (selected) chart — fills remaining vertical space */}
+          <div className="flex-1 min-h-[240px] flex flex-col">
+            {rightSelected === "util" && (
+              <UtilizationCard range={range} cpuNow={cpuNow} gpuNow={gpu0Util} memNow={memPct} />
+            )}
+            {rightSelected === "temp" && (
+              <ChartWithStats title="GPU Temp" accent="#fb7185" unit="°C"
+                              kind="gpu" metric="temp_c" subject="0" range={range} colorFn={tempColor} thresholdLines={[60, 75]} />
+            )}
+            {rightSelected === "power" && (
+              <ChartWithStats title="GPU Power" accent="#fbbf24" unit="W"
+                              kind="gpu" metric="power_w" subject="0" range={range} colorFn={powerColor} thresholdLines={[200, 300]} />
+            )}
+          </div>
 
           {/* Mini rail (3 across) */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3 shrink-0">
             <MiniChartCard
               id="util" label="Utilization" accent="#22d3ee"
               selected={rightSelected === "util"}
@@ -567,9 +569,9 @@ function UtilizationCard({
   const hasData = series.some(p => (p.cpu ?? 0) + (p.gpu ?? 0) + (p.mem ?? 0) > 0);
 
   return (
-    <Panel title="Utilization" accent="#22d3ee" right={`${range.label} window`}>
-      <div className="grid grid-cols-12 gap-3">
-        <div className="col-span-12 xl:col-span-9 relative h-60">
+    <Panel title="Utilization" accent="#22d3ee" right={`${range.label} window`} className="h-full">
+      <div className="grid grid-cols-12 gap-3 h-full">
+        <div className="col-span-12 xl:col-span-9 relative h-full min-h-[180px]">
           {!hasData && (
             <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint pointer-events-none z-10">
               no samples in {range.label}
@@ -686,6 +688,7 @@ function ChartWithStats({
     <Panel
       title={title}
       accent={accent}
+      className="h-full"
       right={stats
         ? <span>
             <span className="text-text-faint">min </span>{stats.min.toFixed(0)}{unit}
@@ -694,7 +697,8 @@ function ChartWithStats({
           </span>
         : undefined}
     >
-      <div className="flex items-baseline gap-2 mb-1">
+      <div className="flex flex-col h-full">
+      <div className="flex items-baseline gap-2 mb-1 shrink-0">
         <span
           className="text-3xl font-bold tabular-nums"
           style={{ color: currentColor, textShadow: `0 0 10px ${currentColor}66` }}
@@ -703,7 +707,7 @@ function ChartWithStats({
         </span>
         <span className="text-sm opacity-60" style={{ color: currentColor }}>{unit}</span>
       </div>
-      <div className="h-40 relative">
+      <div className="flex-1 min-h-[140px] relative">
         {!hasData && (
           <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint pointer-events-none z-10">
             no samples in {range.label}
@@ -735,6 +739,7 @@ function ChartWithStats({
             <Area type="monotone" dataKey="avg" stroke={accent} strokeWidth={1.6} fill={`url(#${gid})`} isAnimationActive={false} />
           </AreaChart>
         </ResponsiveContainer>
+      </div>
       </div>
     </Panel>
   );

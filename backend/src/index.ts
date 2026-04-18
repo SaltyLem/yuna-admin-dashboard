@@ -20,6 +20,7 @@ import pendingActionsRoutes from "./routes/pending-actions.js";
 import cycleBlocksRoutes from "./routes/cycle-blocks.js";
 import apiUsageRoutes from "./routes/api-usage.js";
 import dockerLogsRoutes from "./routes/docker-logs.js";
+import ttsReadingRulesRoutes from "./routes/tts-reading-rules.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
 import { createServer } from "http";
@@ -114,6 +115,14 @@ function requireAuthHeaderOrQuery(req: Request, res: Response, next: NextFunctio
   next();
 }
 app.use("/docker", requireAuthHeaderOrQuery, dockerLogsRoutes);
+
+// TTS reading rules: GET is public (TTS wrapper polls without auth from
+// internal network); writes require auth.
+function authForWrites(req: Request, res: Response, next: NextFunction): void {
+  if (req.method === "GET") { next(); return; }
+  requireAuth(req, res, next);
+}
+app.use("/tts/reading-rules", authForWrites, ttsReadingRulesRoutes);
 
 app.use(requireAuth);
 app.use("/schedules", schedulesRoutes);
