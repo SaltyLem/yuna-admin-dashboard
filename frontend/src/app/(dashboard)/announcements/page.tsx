@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/components/use-api";
 
+type LocaleOpt = "all" | "ja" | "en";
+
 interface Announcement {
   id: number;
   message: string;
   enabled: boolean;
   priority: number;
+  locale: "ja" | "en" | null;
   created_at: string;
   updated_at: string;
 }
@@ -18,6 +21,7 @@ export default function AnnouncementsPage() {
   const [message, setMessage] = useState("");
   const [priority, setPriority] = useState(100);
   const [enabled, setEnabled] = useState(true);
+  const [localeSel, setLocaleSel] = useState<LocaleOpt>("all");
 
   const load = useCallback(async () => {
     const data = await apiFetch<{ announcements: Announcement[] }>("/announcements");
@@ -26,26 +30,33 @@ export default function AnnouncementsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const reset = () => { setEditingId(null); setMessage(""); setPriority(100); setEnabled(true); };
+  const reset = () => { setEditingId(null); setMessage(""); setPriority(100); setEnabled(true); setLocaleSel("all"); };
 
   const openEdit = (a: Announcement) => {
     setEditingId(a.id);
     setMessage(a.message);
     setPriority(a.priority);
     setEnabled(a.enabled);
+    setLocaleSel(a.locale ?? "all");
   };
 
   const save = async () => {
     if (!message.trim()) return;
+    const payload = {
+      message,
+      priority,
+      enabled,
+      locale: localeSel === "all" ? null : localeSel,
+    };
     if (editingId) {
       await apiFetch(`/announcements/${editingId}`, {
         method: "PATCH",
-        body: JSON.stringify({ message, priority, enabled }),
+        body: JSON.stringify(payload),
       });
     } else {
       await apiFetch("/announcements", {
         method: "POST",
-        body: JSON.stringify({ message, priority, enabled }),
+        body: JSON.stringify(payload),
       });
     }
     reset();
@@ -84,6 +95,18 @@ export default function AnnouncementsPage() {
         />
         <div className="flex items-center gap-3 text-sm">
           <label className="flex items-center gap-1">
+            locale
+            <select
+              value={localeSel}
+              onChange={(e) => setLocaleSel(e.target.value as LocaleOpt)}
+              className="rounded bg-panel border border-border px-2 py-1"
+            >
+              <option value="all">all (ja + en)</option>
+              <option value="ja">ja only</option>
+              <option value="en">en only</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-1">
             priority
             <input
               type="number"
@@ -119,6 +142,7 @@ export default function AnnouncementsPage() {
           <thead className="sticky top-0 bg-bg border-b border-border">
             <tr className="text-left text-text-muted">
               <th className="px-2 py-2 w-12">#</th>
+              <th className="px-2 py-2 w-16">locale</th>
               <th className="px-2 py-2 w-16">pri</th>
               <th className="px-2 py-2">message</th>
               <th className="px-2 py-2 w-40">updated</th>
@@ -130,6 +154,11 @@ export default function AnnouncementsPage() {
             {items.map((a) => (
               <tr key={a.id} className="border-b border-border hover:bg-panel/30">
                 <td className="px-2 py-1.5 text-text-muted">{a.id}</td>
+                <td className="px-2 py-1.5">
+                  <span className="rounded bg-panel px-1.5 py-0.5 text-xs text-text-muted">
+                    {a.locale ?? "all"}
+                  </span>
+                </td>
                 <td className="px-2 py-1.5 text-text-muted">{a.priority}</td>
                 <td className="px-2 py-1.5 whitespace-pre-wrap break-words">{a.message}</td>
                 <td className="px-2 py-1.5 text-text-muted text-xs">{new Date(a.updated_at).toLocaleString()}</td>
@@ -146,7 +175,7 @@ export default function AnnouncementsPage() {
               </tr>
             ))}
             {items.length === 0 && (
-              <tr><td colSpan={6} className="text-center text-text-muted py-6">no announcements</td></tr>
+              <tr><td colSpan={7} className="text-center text-text-muted py-6">no announcements</td></tr>
             )}
           </tbody>
         </table>
