@@ -42,6 +42,7 @@ export const NAV: NavItem[] = [
       { href: "/stream/schedule", label: "Schedule" },
       { href: "/stream/programs", label: "Programs" },
       { href: "/stream/comments", label: "Comments" },
+      { href: "/stream/reading-rules", label: "Reading rules" },
       { href: "/stream/history", label: "History" },
       { href: "/stream/auto-play", label: "Auto Play" },
     ],
