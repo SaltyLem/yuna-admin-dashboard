@@ -38,6 +38,16 @@ function FilmIcon() {
   );
 }
 
+function WorkerIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 export interface NavChild {
   href: string;
   label: string;
@@ -125,6 +135,15 @@ export const NAV: NavItem[] = [
       { href: "/video/sessions", label: "Sessions" },
       { href: "/video/posts", label: "Posts" },
       { href: "/video/questions", label: "Questions" },
+    ],
+  },
+  {
+    href: "/worker",
+    label: "Worker",
+    icon: <WorkerIcon />,
+    children: [
+      { href: "/worker/crawl", label: "Crawl (articles)" },
+      { href: "/worker/crawl/sources", label: "Crawl sources" },
     ],
   },
   { href: "/metrics", label: "Metrics", icon: <GaugeIcon /> },
