@@ -19,7 +19,8 @@ import { query } from "./db/client.js";
 
 const HOST_PROC = "/host/proc";
 const DOCKER_SOCK = "/var/run/docker.sock";
-const GPU_CONTAINER = "prism-sbv2-1";
+const GPU_CONTAINER = process.env["METRICS_GPU_CONTAINER"] ?? "prism-sbv2-1";
+const HOST_LABEL = process.env["METRICS_HOST_LABEL"] ?? "linux-3080";
 const HOST_INTERVAL_MS = 15_000;
 const DOCKER_INTERVAL_MS = 30_000;
 const PRUNE_INTERVAL_MS = 6 * 60 * 60_000;
@@ -36,17 +37,17 @@ interface Sample {
 
 async function insert(rows: Sample[]): Promise<void> {
   if (rows.length === 0) return;
-  // Build a single multi-row INSERT.
+  // Build a single multi-row INSERT tagged with the host label.
   const params: unknown[] = [];
   const tuples: string[] = [];
   for (const r of rows) {
     const base = params.length;
-    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`);
-    params.push(r.kind, r.subject, r.metric, r.value);
+    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
+    params.push(HOST_LABEL, r.kind, r.subject, r.metric, r.value);
   }
   try {
     await query(
-      `INSERT INTO metrics_samples (kind, subject, metric, value) VALUES ${tuples.join(", ")}`,
+      `INSERT INTO metrics_samples (host, kind, subject, metric, value) VALUES ${tuples.join(", ")}`,
       params,
     );
   } catch (err) {

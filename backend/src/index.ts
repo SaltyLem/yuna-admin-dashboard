@@ -5,7 +5,7 @@ import commentsRoutes from "./routes/comments.js";
 import personsRoutes from "./routes/persons.js";
 import streamRoutes from "./routes/stream.js";
 import forexRoutes from "./routes/forex.js";
-import metricsRoutes from "./routes/metrics.js";
+import metricsRoutes, { ingestHandler as metricsIngestHandler } from "./routes/metrics.js";
 import { primeForex } from "./forex-client.js";
 import { startMetricsCollector } from "./metrics-collector.js";
 import autoReplyRoutes from "./routes/auto-reply.js";
@@ -123,6 +123,24 @@ function authForWrites(req: Request, res: Response, next: NextFunction): void {
   requireAuth(req, res, next);
 }
 app.use("/tts/reading-rules", authForWrites, ttsReadingRulesRoutes);
+
+// Metrics ingest from remote agents (e.g. the 5090 box). Guarded by a
+// shared secret header so it doesn't need a session token. Registered
+// before `requireAuth` so it bypasses the session-token middleware.
+const METRICS_INGEST_TOKEN = process.env["METRICS_INGEST_TOKEN"] ?? "";
+function requireIngestToken(req: Request, res: Response, next: NextFunction): void {
+  if (!METRICS_INGEST_TOKEN) {
+    res.status(503).json({ error: "Ingest disabled (no token configured)" });
+    return;
+  }
+  const provided = req.headers["x-metrics-ingest-token"];
+  if (typeof provided !== "string" || provided !== METRICS_INGEST_TOKEN) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+}
+app.post("/metrics/ingest", requireIngestToken, metricsIngestHandler);
 
 app.use(requireAuth);
 app.use("/schedules", schedulesRoutes);
