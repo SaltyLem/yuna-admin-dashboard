@@ -48,7 +48,7 @@ interface YunaState {
   currentPhase?: string | null;
   todayCostUsd?: number | null;
   activeGoals?: Array<{ id: number; content?: string; progress?: string | null; type?: string }>;
-  currentInterests?: string[];
+  currentInterests?: Array<string | { topic?: string; since?: string; lastSeen?: string; intensity?: number }>;
 }
 
 interface LatestSample {
@@ -443,11 +443,21 @@ function MindPanel({
           <div>
             <div className="text-[9px] uppercase tracking-[0.2em] text-text-faint mb-1">Interests</div>
             <div className="flex flex-wrap gap-1">
-              {interests.slice(0, 8).map((t, i) => (
-                <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 text-text-muted bg-panel/40">
-                  {t}
-                </span>
-              ))}
+              {interests.slice(0, 8).map((t, i) => {
+                const topic = typeof t === "string" ? t : (t.topic ?? "");
+                if (!topic) return null;
+                const intensity = typeof t === "object" && t.intensity != null ? t.intensity : null;
+                return (
+                  <span
+                    key={i}
+                    className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 text-text-muted bg-panel/40 tabular-nums"
+                    title={intensity != null ? `intensity ${intensity.toFixed(2)}` : undefined}
+                  >
+                    {topic}
+                    {intensity != null && <span className="text-text-faint ml-1">{intensity.toFixed(1)}</span>}
+                  </span>
+                );
+              })}
             </div>
           </div>
         )}
