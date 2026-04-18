@@ -1,0 +1,17 @@
+services:
+  metrics-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - METRICS_INGEST_URL=${METRICS_INGEST_URL}
+      - METRICS_INGEST_TOKEN=${METRICS_INGEST_TOKEN}
+      - METRICS_HOST_LABEL=${METRICS_HOST_LABEL:-linux-5090}
+      - METRICS_GPU_CONTAINER=${METRICS_GPU_CONTAINER:-ollama}
+    volumes:
+      # Docker socket for GPU exec + per-container stats.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Host /proc for CPU + memory metrics. Read-only.
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    restart: unless-stopped
