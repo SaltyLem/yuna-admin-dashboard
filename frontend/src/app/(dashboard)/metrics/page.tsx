@@ -214,7 +214,7 @@ export default function MetricsPage() {
 
       {/* Top: 2x3 Stat grid on the left + other panels stacked on the right */}
       <div className="grid grid-cols-12 gap-3">
-        <div className="col-span-12 xl:col-span-5">
+        <div className="col-span-12 xl:col-span-5 flex flex-col gap-3">
           <div className="grid grid-cols-2 grid-rows-3 gap-3 auto-rows-fr">
             <StatPanel label="CPU"       value={cpuNow}      unit="%" color={threshold(cpuNow)}   fixed={1}
                        kind="cpu"    metric="usage_pct" subject={null} range={range} />
@@ -231,9 +231,7 @@ export default function MetricsPage() {
             <StatPanel label="GPU Power" value={gpu0Power}   unit="W" color={powerColor(gpu0Power)} fixed={0}
                        kind="gpu" metric="power_w" subject="0" range={range} />
           </div>
-        </div>
 
-        <div className="col-span-12 xl:col-span-7 flex flex-col gap-3">
           <div className="grid grid-cols-3 gap-3">
             <GaugeWithStats title="CPU"    value={cpuNow}  unit="%" color={threshold(cpuNow)}
                             kind="cpu"    metric="usage_pct" subject={null} range={range} />
@@ -244,7 +242,9 @@ export default function MetricsPage() {
                             sub={gpu0Temp != null ? `${Math.round(gpu0Temp)}°C · ${gpu0Power ? Math.round(gpu0Power) : "?"} W` : undefined}
                             kind="gpu" metric="usage_pct" subject="0" range={range} />
           </div>
+        </div>
 
+        <div className="col-span-12 xl:col-span-7 flex flex-col gap-3">
           <UtilizationCard range={range} cpuNow={cpuNow} gpuNow={gpu0Util} memNow={memPct} />
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
