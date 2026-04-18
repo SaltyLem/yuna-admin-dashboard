@@ -1713,18 +1713,14 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
         personId: m.person_id ?? null,
       });
     }
-    const latestDb = (c.monitor?.comments ?? [])[0]?.commented_at
-      ? Date.parse(c.monitor!.comments[0]!.commented_at)
-      : 0;
+    // Dedup between DB snapshot and raw events is handled by the byKey
+    // Map below (channel + extId + text). No time-based skip — a single
+    // recent DB comment would otherwise hide an entire day of events.
     for (const e of c.events) {
       if (e.event_type !== "comments") continue;
       const p = e.payload as Record<string, unknown> | null;
       if (!p) continue;
-      // Order by arrival time (when admin-backend received it) so newly
-      // arrived events always sort above older DB snapshot entries,
-      // even when the upstream payload.timestamp has lag.
       const at = Date.parse(e.recorded_at);
-      if (at <= latestDb && !Number.isNaN(at) && at !== 0) continue;
       const extId = typeof p["id"] === "string" ? p["id"] : `${String(p["user"] ?? "?")}@${at}`;
       const text = String(p["text"] ?? "");
       const key = `${ch}|${extId}|${text}`;
