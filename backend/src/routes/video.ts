@@ -117,14 +117,17 @@ router.get("/posts", (req, res) => proxy(req, res, "/api/admin/video/posts"));
 router.get("/questions", (req, res) => proxy(req, res, "/api/admin/video/questions"));
 router.get("/stats", (req, res) => proxy(req, res, "/api/admin/video/stats"));
 
-/* ==================== Local file preview ==================== */
+export default router;
+
+/* ==================== Local file preview (public router) ==================== */
 
 /**
- * Serve a generated mp4 (or its scenario JSON) from the yuna-video
- * output volume. Only files directly under videos/ or scenarios/ with a
- * short alnum id + known extension are allowed.
+ * Serve a generated mp4 or its scenario JSON. Exported as a separate
+ * handler so index.ts can mount it before the session-auth middleware
+ * and guard it with a ?token= query (needed because <video> tags can't
+ * attach Authorization headers).
  */
-router.get("/file/:kind/:name", (req: Request, res: Response) => {
+export function videoFileHandler(req: Request, res: Response): void {
   const kind = String(req.params["kind"] ?? "");
   const name = String(req.params["name"] ?? "");
   if (!/^(videos|scenarios)$/.test(kind)) {
@@ -151,6 +154,4 @@ router.get("/file/:kind/:name", (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-cache");
     fs.createReadStream(full).pipe(res);
   });
-});
-
-export default router;
+}

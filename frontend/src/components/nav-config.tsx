@@ -29,6 +29,15 @@ function MegaphoneIcon() {
   );
 }
 
+function FilmIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M7 3v18M17 3v18M3 7h4M3 12h4M3 17h4M17 7h4M17 12h4M17 17h4" />
+    </svg>
+  );
+}
+
 export interface NavChild {
   href: string;
   label: string;
@@ -107,6 +116,17 @@ export const NAV: NavItem[] = [
     ],
   },
   { href: "/announcements", label: "Announcements", icon: <MegaphoneIcon /> },
+  {
+    href: "/video",
+    label: "Video",
+    icon: <FilmIcon />,
+    children: [
+      { href: "/video/queue", label: "Queue" },
+      { href: "/video/sessions", label: "Sessions" },
+      { href: "/video/posts", label: "Posts" },
+      { href: "/video/questions", label: "Questions" },
+    ],
+  },
   { href: "/metrics", label: "Metrics", icon: <GaugeIcon /> },
   { href: "/log", label: "Log", icon: <LogIcon /> },
   { href: "/settings", label: "Settings", icon: <SettingsIcon /> },

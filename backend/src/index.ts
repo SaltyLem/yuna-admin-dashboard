@@ -22,7 +22,7 @@ import apiUsageRoutes from "./routes/api-usage.js";
 import dockerLogsRoutes from "./routes/docker-logs.js";
 import ttsReadingRulesRoutes from "./routes/tts-reading-rules.js";
 import announcementsRoutes from "./routes/announcements.js";
-import videoRoutes from "./routes/video.js";
+import videoRoutes, { videoFileHandler } from "./routes/video.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
 import { createServer } from "http";
@@ -146,6 +146,10 @@ function requireIngestToken(req: Request, res: Response, next: NextFunction): vo
   next();
 }
 app.post("/metrics/ingest", requireIngestToken, metricsIngestHandler);
+
+// Local mp4 / scenario preview — uses ?token= because <video> tags
+// cannot send Authorization headers.
+app.get("/video/file/:kind/:name", requireAuthHeaderOrQuery, videoFileHandler);
 
 app.use(requireAuth);
 app.use("/schedules", schedulesRoutes);
