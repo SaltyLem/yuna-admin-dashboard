@@ -816,13 +816,43 @@ function StatsPanel({
 
   const category = yunaState?.emotion?.category ?? "—";
 
+  // Preferred source: admin-db.stream_events (the raw Redis log),
+  // aggregated client-side. yuna-api's stream_comments table is not
+  // always populated (save path can silently drop), so we fall back
+  // to monitor.counts only when the event aggregation gives zero.
   const counts = (ch: Channel) => byChannel[ch]?.monitor?.counts;
-  const total = (key: keyof Counts) =>
+  const monitorSum = (key: keyof Counts) =>
     safeNum(counts("ja")?.[key]) + safeNum(counts("en")?.[key]);
-  const totalComments = total("comment_count");
-  const totalViewers = total("unique_viewers");
-  const totalSuper = total("superchat_count");
-  const totalSuperUsd =
+
+  const aggFromEvents = useMemo(() => {
+    const agg = { comments: 0, superchat: 0, superUsd: 0, viewers: new Set<string>() };
+    for (const ch of CHANNELS) {
+      const events = byChannel[ch]?.events ?? [];
+      for (const e of events) {
+        if (e.event_type !== "comments") continue;
+        const p = e.payload as Record<string, unknown> | null;
+        if (!p) continue;
+        agg.comments += 1;
+        const key = typeof p["authorChannelId"] === "string" ? p["authorChannelId"]
+                  : typeof p["user"] === "string"           ? p["user"]
+                  : null;
+        if (key) agg.viewers.add(`${ch}:${key}`);
+        if (p["isSuperchat"]) {
+          agg.superchat += 1;
+          const amt = typeof p["amount"] === "string"
+            ? parseFloat(p["amount"].replace(/[^0-9.]/g, ""))
+            : typeof p["amount"] === "number" ? p["amount"] : 0;
+          if (!Number.isNaN(amt)) agg.superUsd += amt;
+        }
+      }
+    }
+    return { comments: agg.comments, superchat: agg.superchat, superUsd: agg.superUsd, viewers: agg.viewers.size };
+  }, [byChannel]);
+
+  const totalComments = aggFromEvents.comments || monitorSum("comment_count");
+  const totalViewers  = aggFromEvents.viewers  || monitorSum("unique_viewers");
+  const totalSuper    = aggFromEvents.superchat || monitorSum("superchat_count");
+  const totalSuperUsd = aggFromEvents.superUsd ||
     safeNum(counts("ja")?.superchat_total) + safeNum(counts("en")?.superchat_total);
   const todayCost = yunaState?.todayCostUsd;
 
