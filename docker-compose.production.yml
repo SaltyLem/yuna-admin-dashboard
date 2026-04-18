@@ -30,6 +30,7 @@ services:
       - ../../.env
     environment:
       - REDIS_STREAM_URL=redis://192.168.11.13:6381
+      - OLLAMA_URL=http://192.168.11.17:11434
       - SQLITE_PATH=/data/viewers.db
       - DATABASE_URL=postgresql://yuna_admin:yuna_admin_local@admin-db:5432/yuna_admin
     volumes:
