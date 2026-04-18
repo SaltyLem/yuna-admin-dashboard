@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { apiFetch } from "@/components/use-api";
 import { useAdminWs } from "@/components/use-admin-ws";
+import { modal } from "@/components/modal";
 
 /* ============================================================= */
 /*  types                                                         */
@@ -56,6 +57,7 @@ interface TalkerResult {
   cost: number;
   emotion_delta: number;
   created_at: string;
+  prompt?: string | null;
 }
 
 interface CommentRow {
@@ -392,7 +394,17 @@ function CommentsFeedColumn({ channel, data, loading }: { channel: Channel; data
 }
 
 function UtterancesFeedColumn({ channel, data, loading }: { channel: Channel; data: ChannelLive | null; loading?: boolean }) {
-  type Row = { id: string; texts: string[]; expression?: string; isReply: boolean; at: number };
+  type Row = {
+    id: string;
+    texts: string[];
+    expression?: string;
+    isReply: boolean;
+    at: number;
+    /** full DB talker result when available — powers the detail modal */
+    talker?: TalkerResult;
+    /** raw speak payload when only the WS event is known */
+    speakPayload?: Record<string, unknown>;
+  };
   const rows = useMemo(() => {
     const byKey = new Map<string, Row>();
     const put = (key: string, r: Row) => { if (!byKey.has(key)) byKey.set(key, r); };
@@ -407,6 +419,7 @@ function UtterancesFeedColumn({ channel, data, loading }: { channel: Channel; da
         expression: t.utterances[0]?.expression,
         isReply: Boolean(t.comment_text),
         at,
+        talker: t,
       });
     });
     for (const e of data.events) {
@@ -423,19 +436,21 @@ function UtterancesFeedColumn({ channel, data, loading }: { channel: Channel; da
         expression: us[0]?.["expression"] as string | undefined,
         isReply: Boolean(us[0]?.["comment"]),
         at,
+        speakPayload: p,
       });
     }
     return [...byKey.values()].sort((a, b) => b.at - a.at).slice(0, 25);
   }, [data]);
 
-  // channel is only used to disambiguate keys if needed; prevent unused warn
-  void channel;
-
   if (rows.length === 0) return loading && !data ? <Loader /> : <Empty label="no utterances" />;
   return (
     <div className="flex flex-col gap-1 overflow-y-auto h-full scrollbar-none">
       {rows.map((r) => (
-        <div key={r.id} className="rounded-md border border-white/5 bg-white/[0.02] px-1.5 py-1 hover:bg-white/[0.05] transition">
+        <div
+          key={r.id}
+          onClick={() => openUtteranceDetail(channel, r)}
+          className="rounded-md border border-white/5 bg-white/[0.02] px-1.5 py-1 hover:bg-white/[0.05] transition cursor-pointer"
+        >
           <div className="flex items-center gap-1 text-[9px]">
             {r.expression && <span className="rounded bg-fuchsia-500/10 text-fuchsia-300 px-1">{r.expression}</span>}
             {r.isReply && <span className="text-cyan-300">reply</span>}
@@ -450,6 +465,82 @@ function UtterancesFeedColumn({ channel, data, loading }: { channel: Channel; da
   );
 }
 
+function openUtteranceDetail(
+  channel: Channel,
+  row: { texts: string[]; expression?: string; isReply: boolean; at: number; talker?: TalkerResult; speakPayload?: Record<string, unknown> },
+): void {
+  modal.open({
+    title: `YUNA ${CHANNEL_LABEL[channel]} utterance`,
+    size: "lg",
+    content: <UtteranceDetail channel={channel} row={row} />,
+  });
+}
+
+function UtteranceDetail({
+  channel, row,
+}: {
+  channel: Channel;
+  row: { texts: string[]; expression?: string; isReply: boolean; at: number; talker?: TalkerResult; speakPayload?: Record<string, unknown> };
+}) {
+  const t = row.talker;
+  const p = row.speakPayload;
+  // pull fields from whichever source is richer (DB monitor first, then WS speak payload)
+  type UtteranceView = { text: string; expression?: string; isReply?: boolean };
+  const utterances: UtteranceView[] = t
+    ? t.utterances
+    : Array.isArray(p?.["utterances"])
+      ? (p!["utterances"] as Array<Record<string, unknown>>).map(u => ({
+          text: String(u["text"] ?? ""),
+          expression: u["expression"] as string | undefined,
+          isReply: Boolean(u["comment"]),
+        }))
+      : row.texts.map(text => ({ text }));
+  const commentText = t?.comment_text ?? null;
+  const commentUser = t?.comment_user ?? null;
+  const model = t?.model ?? null;
+  const cost = t ? safeNum(t.cost) : null;
+  const emotionDelta = t ? safeNum(t.emotion_delta) : null;
+
+  return (
+    <div className="space-y-4 text-[12px]">
+      <div className="grid grid-cols-2 gap-2">
+        <Kv label="Channel" value={CHANNEL_LABEL[channel]} accent={CHANNEL_COLOR[channel]} />
+        <Kv label="Time"    value={new Date(row.at).toLocaleString()} />
+        {model && <Kv label="Model" value={model} />}
+        {cost != null && <Kv label="Cost" value={`$${cost.toFixed(4)}`} accent="#fbbf24" />}
+        {emotionDelta != null && <Kv label="Emotion Δ" value={emotionDelta.toFixed(3)} accent={emotionDelta >= 0 ? "#10b981" : "#ef4444"} />}
+        <Kv label="Source" value={t ? "DB (talker_result)" : "WS (speak event)"} />
+      </div>
+
+      {(commentText || commentUser) && (
+        <Section title="Responding to comment" accent="#38bdf8">
+          {commentUser && <div className="text-[11px] text-cyan-300 mb-0.5">{commentUser}</div>}
+          {commentText && <div className="text-text whitespace-pre-wrap">{commentText}</div>}
+        </Section>
+      )}
+
+      <Section title="Utterances" accent="#c084fc">
+        <div className="space-y-2">
+          {utterances.map((u, i) => (
+            <div key={i} className="rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5">
+              <div className="flex items-center gap-1 text-[9px] mb-0.5">
+                {u.expression && <span className="rounded bg-fuchsia-500/10 text-fuchsia-300 px-1">{u.expression}</span>}
+                {u.isReply && <span className="text-cyan-300">reply</span>}
+              </div>
+              <div className="text-text whitespace-pre-wrap leading-relaxed">{u.text}</div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {t?.recalled_memories != null && t.recalled_memories !== "" && (
+        <RawJson label="recalled_memories" value={t.recalled_memories} />
+      )}
+      {t?.prompt && <RawJson label="prompt" value={t.prompt} />}
+    </div>
+  );
+}
+
 function DirectorColumn({ channel, data, loading }: { channel: Channel; data: ChannelLive | null; loading?: boolean }) {
   const rows = useMemo(() => {
     const iters = data?.monitor?.directorIters ?? [];
@@ -459,6 +550,7 @@ function DirectorColumn({ channel, data, loading }: { channel: Channel; data: Ch
       .map((it) => {
         const info = extractDirectorInfo(it);
         return {
+          it,
           id: `${it.created_at}-${it.iteration}`,
           at: Date.parse(it.created_at),
           theme: info.theme ?? "—",
@@ -470,14 +562,17 @@ function DirectorColumn({ channel, data, loading }: { channel: Channel; data: Ch
         };
       });
   }, [data]);
-  void channel;
   if (rows.length === 0) return loading && !data ? <Loader /> : <Empty label="no director" />;
   return (
     <div className="overflow-y-auto h-full scrollbar-none">
       <table className="w-full text-[10px]">
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition">
+            <tr
+              key={r.id}
+              onClick={() => openDirectorDetail(channel, r.it)}
+              className="border-b border-white/5 last:border-0 hover:bg-white/[0.05] transition cursor-pointer"
+            >
               <td className="py-1 px-1 tabular-nums text-text-faint w-12">{formatTimeShort(r.at)}</td>
               <td className="py-1 px-1 tabular-nums text-text-muted w-6">#{r.iter}</td>
               <td className="py-1 px-1 text-text truncate max-w-[120px]" title={r.theme}>{r.theme}</td>
@@ -490,6 +585,105 @@ function DirectorColumn({ channel, data, loading }: { channel: Channel; data: Ch
         </tbody>
       </table>
     </div>
+  );
+}
+
+function openDirectorDetail(channel: Channel, it: DirectorIter): void {
+  const info = extractDirectorInfo(it);
+  modal.open({
+    title: `Director ${CHANNEL_LABEL[channel]} · iter #${it.iteration}`,
+    size: "lg",
+    content: <DirectorDetail channel={channel} it={it} info={info} />,
+  });
+}
+
+function DirectorDetail({
+  channel, it, info,
+}: {
+  channel: Channel;
+  it: DirectorIter;
+  info: ReturnType<typeof extractDirectorInfo>;
+}) {
+  return (
+    <div className="space-y-4 text-[12px]">
+      <div className="grid grid-cols-2 gap-2">
+        <Kv label="Channel"    value={CHANNEL_LABEL[channel]} accent={CHANNEL_COLOR[channel]} />
+        <Kv label="Iteration"  value={`#${it.iteration}`} />
+        <Kv label="Time"       value={new Date(it.created_at).toLocaleString()} />
+        <Kv label="Phase"      value={it.phase} />
+        <Kv label="Cost"       value={`$${safeNum(it.cost).toFixed(4)}`} accent="#fbbf24" />
+        <Kv label="Done"       value={it.done ? "yes" : "no"} />
+        {info.pickComments != null && <Kv label="pickComments" value={String(info.pickComments)} />}
+        <Kv label="shouldClose" value={info.shouldClose ? "yes" : "no"} accent={info.shouldClose ? "#fbbf24" : undefined} />
+      </div>
+
+      {info.theme && (
+        <Section title="Current theme" accent="#fb7185">
+          <div className="text-[14px] font-semibold text-text">{info.theme}</div>
+          {info.themeDirection && (
+            <div className="mt-1 text-[12px] text-text-muted whitespace-pre-wrap">{info.themeDirection}</div>
+          )}
+        </Section>
+      )}
+
+      {it.emergency_reason && (
+        <Section title="Emergency reason" accent="#f43f5e">
+          <div className="text-rose-300 whitespace-pre-wrap">{it.emergency_reason}</div>
+        </Section>
+      )}
+
+      {it.thinking && (
+        <Section title="Thinking" accent="#22d3ee">
+          <div className="text-text-soft whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto scrollbar-none">
+            {it.thinking}
+          </div>
+        </Section>
+      )}
+
+      <RawJson label="action_results" value={it.action_results} />
+      <RawJson label="actions"        value={it.actions} />
+    </div>
+  );
+}
+
+function Kv({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="rounded-md border border-white/5 bg-white/[0.02] px-2 py-1.5">
+      <div className="text-[9px] uppercase tracking-[0.15em] text-text-faint">{label}</div>
+      <div
+        className="mt-0.5 text-[13px] font-medium tabular-nums break-all"
+        style={accent ? { color: accent, textShadow: `0 0 8px ${accent}44` } : undefined}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, accent = "#22d3ee", children }: { title: string; accent?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="inline-block h-1 w-1 rounded-full" style={{ background: accent, boxShadow: `0 0 6px ${accent}` }} />
+        <div className="text-[10px] uppercase tracking-[0.2em] font-semibold" style={{ color: `${accent}cc` }}>{title}</div>
+      </div>
+      <div className="rounded-md border border-white/5 bg-white/[0.02] px-3 py-2">{children}</div>
+    </div>
+  );
+}
+
+function RawJson({ label, value }: { label: string; value: unknown }) {
+  if (value == null) return null;
+  const body = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return (
+    <details className="rounded-md border border-white/5 bg-white/[0.02] group">
+      <summary className="cursor-pointer px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-text-faint select-none">
+        {label}
+      </summary>
+      <pre className="px-3 pb-2 text-[11px] text-text-muted whitespace-pre-wrap break-all max-h-48 overflow-y-auto scrollbar-none">
+        {body}
+      </pre>
+    </details>
   );
 }
 
