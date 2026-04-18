@@ -6,6 +6,7 @@ import {
   BrainIcon,
   SettingsIcon,
   ChatIcon,
+  LogIcon,
 } from "./icons";
 
 export interface NavChild {
@@ -84,5 +85,6 @@ export const NAV: NavItem[] = [
       { href: "/chat/ollama", label: "Ollama" },
     ],
   },
+  { href: "/log", label: "Log", icon: <LogIcon /> },
   { href: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];

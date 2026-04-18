@@ -17,6 +17,7 @@ import stateRoutes from "./routes/state.js";
 import pendingActionsRoutes from "./routes/pending-actions.js";
 import cycleBlocksRoutes from "./routes/cycle-blocks.js";
 import apiUsageRoutes from "./routes/api-usage.js";
+import dockerLogsRoutes from "./routes/docker-logs.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
 import { createServer } from "http";
@@ -97,6 +98,21 @@ app.get("/schedules/active", async (req, res) => {
   );
   res.json({ schedules: result.rows });
 });
+// Docker logs: SSE で EventSource を使うため、Authorization ヘッダの代わりに
+// ?token= も受け付ける専用 middleware で守る。`app.use(requireAuth)` の前に mount。
+function requireAuthHeaderOrQuery(req: Request, res: Response, next: NextFunction): void {
+  const auth = req.headers.authorization;
+  let token: string | undefined;
+  if (auth?.startsWith("Bearer ")) token = auth.slice(7);
+  if (!token && typeof req.query.token === "string") token = req.query.token;
+  if (!isValidToken(token)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+}
+app.use("/docker", requireAuthHeaderOrQuery, dockerLogsRoutes);
+
 app.use(requireAuth);
 app.use("/schedules", schedulesRoutes);
 app.use("/programs", programsRoutes);

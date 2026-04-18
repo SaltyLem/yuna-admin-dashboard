@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@google-cloud/vertexai": "^1.11.0",
+    "@types/dockerode": "^4.0.1",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
+    "dockerode": "^4.0.10",
     "express": "^5.2.1",
     "ioredis": "^5.10.1",
     "pg": "^8.20.0",

@@ -34,6 +34,8 @@ services:
       - DATABASE_URL=postgresql://yuna_admin:yuna_admin_local@admin-db:5432/yuna_admin
     volumes:
       - admin-data:/data
+      # Docker socket for /docker/* (live log viewer). 内部ネットワーク前提。
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - admin-db
     restart: unless-stopped
