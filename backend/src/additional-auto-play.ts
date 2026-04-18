@@ -209,7 +209,7 @@ function buildPayload(user: string, channelId: string, text: string) {
     authorChannelId: channelId,
     authorPhoto: null,
     text,
-    timestamp: Math.floor(Date.now() / 1000),
+    timestamp: Date.now(),
     isSuperchat: false,
     amount: null,
   };

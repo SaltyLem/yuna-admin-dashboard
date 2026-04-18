@@ -110,7 +110,7 @@ async function generateAndPublish(): Promise<void> {
         authorChannelId: viewer.authorChannelId,
         authorPhoto: null,
         text: c.comment,
-        timestamp: Math.floor(Date.now() / 1000),
+        timestamp: Date.now(),
         isSuperchat: false,
         amount: null,
       };

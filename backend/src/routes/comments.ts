@@ -30,7 +30,7 @@ router.post("/send", async (req: Request, res: Response) => {
     authorChannelId: channelId,
     authorPhoto: null,
     text,
-    timestamp: Math.floor(Date.now() / 1000),
+    timestamp: Date.now(),
     isSuperchat: isSuperchat ?? false,
     amount: isSuperchat ? (amount ?? null) : null,
   };
