@@ -30,9 +30,11 @@ services:
       - ../../.env
     environment:
       - REDIS_STREAM_URL=redis://192.168.11.13:6381
+      - YUNA_REDIS_URL=redis://yuna-redis:6379
       - OLLAMA_URL=http://192.168.11.17:11434
       - SQLITE_PATH=/data/viewers.db
       - DATABASE_URL=postgresql://yuna_admin:yuna_admin_local@admin-db:5432/yuna_admin
+      - VIDEO_OUT_DIR=/video-out
     volumes:
       - admin-data:/data
       # Docker socket for /docker/* (live log viewer) and per-container
@@ -42,6 +44,8 @@ services:
       # network). Read-only so the container can't affect the host.
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
+      # yuna-video output directory for mp4 / scenario preview.
+      - ../yuna-video/out:/video-out:ro
     depends_on:
       - admin-db
     restart: unless-stopped

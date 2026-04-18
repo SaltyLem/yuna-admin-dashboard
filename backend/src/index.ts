@@ -21,6 +21,8 @@ import cycleBlocksRoutes from "./routes/cycle-blocks.js";
 import apiUsageRoutes from "./routes/api-usage.js";
 import dockerLogsRoutes from "./routes/docker-logs.js";
 import ttsReadingRulesRoutes from "./routes/tts-reading-rules.js";
+import announcementsRoutes from "./routes/announcements.js";
+import videoRoutes from "./routes/video.js";
 import { query } from "./db/client.js";
 import express, { Request, Response, NextFunction } from "express";
 import { createServer } from "http";
@@ -124,6 +126,9 @@ function authForWrites(req: Request, res: Response, next: NextFunction): void {
 }
 app.use("/tts/reading-rules", authForWrites, ttsReadingRulesRoutes);
 
+// Admin → Overlay announcements: GET is public (overlay polls), writes auth.
+app.use("/announcements", authForWrites, announcementsRoutes);
+
 // Metrics ingest from remote agents (e.g. the 5090 box). Guarded by a
 // shared secret header so it doesn't need a session token. Registered
 // before `requireAuth` so it bypasses the session-token middleware.
@@ -150,6 +155,7 @@ app.use("/stream", streamRoutes);
 app.use("/persons", personsRoutes);
 app.use("/forex", forexRoutes);
 app.use("/metrics", metricsRoutes);
+app.use("/video", videoRoutes);
 app.use("/auto-reply", autoReplyRoutes);
 app.use("/additional-auto-play", aapRoutes);
 app.use("/goals", goalsRoutes);

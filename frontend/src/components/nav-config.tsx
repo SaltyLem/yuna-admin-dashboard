@@ -19,6 +19,16 @@ function GaugeIcon() {
   );
 }
 
+function MegaphoneIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11v3l11 4V7L3 11z" />
+      <path d="M14 7l5-3v16l-5-3" />
+      <path d="M8 14v5a2 2 0 0 0 4 0v-3" />
+    </svg>
+  );
+}
+
 export interface NavChild {
   href: string;
   label: string;
@@ -96,6 +106,7 @@ export const NAV: NavItem[] = [
       { href: "/chat/ollama", label: "Ollama" },
     ],
   },
+  { href: "/announcements", label: "Announcements", icon: <MegaphoneIcon /> },
   { href: "/metrics", label: "Metrics", icon: <GaugeIcon /> },
   { href: "/log", label: "Log", icon: <LogIcon /> },
   { href: "/settings", label: "Settings", icon: <SettingsIcon /> },
