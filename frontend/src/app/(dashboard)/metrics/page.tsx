@@ -1,11 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ReferenceLine,
 } from "recharts";
 import { apiFetch } from "@/components/use-api";
+
+/* ============================================================= */
+/*  host context                                                  */
+/* ============================================================= */
+
+const HostContext = createContext<string>("linux-3080");
+const DEFAULT_HOST = "linux-3080";
+
+function hostLabel(host: string): string {
+  if (host === "linux-3080") return "3080 Ti";
+  if (host === "linux-5090") return "5090";
+  return host;
+}
 
 /* ============================================================= */
 /*  types                                                         */
@@ -74,56 +87,79 @@ function useSeries(
   kind: string, metric: string, subject: string | null,
   rangeMinutes: number, bucketSeconds: number,
 ): SeriesPoint[] | null {
+  const host = useContext(HostContext);
   const [data, setData] = useState<SeriesPoint[] | null>(null);
   useEffect(() => {
     let cancelled = false;
     async function run() {
       try {
-        const qs = new URLSearchParams({ kind, metric, rangeMinutes: String(rangeMinutes), bucketSeconds: String(bucketSeconds) });
+        const qs = new URLSearchParams({ host, kind, metric, rangeMinutes: String(rangeMinutes), bucketSeconds: String(bucketSeconds) });
         if (subject !== null) qs.set("subject", subject);
         const d = await apiFetch<SeriesResp>(`/metrics/series?${qs}`, { silent: true });
         if (!cancelled) setData(d.series);
       } catch { /* keep */ }
     }
+    setData(null);
     void run();
     const h = setInterval(run, Math.max(10_000, Math.min(60_000, bucketSeconds * 1000)));
     return () => { cancelled = true; clearInterval(h); };
-  }, [kind, metric, subject, rangeMinutes, bucketSeconds]);
+  }, [host, kind, metric, subject, rangeMinutes, bucketSeconds]);
   return data;
 }
 
 function useLatest(): LatestSample[] | null {
+  const host = useContext(HostContext);
   const [data, setData] = useState<LatestSample[] | null>(null);
   useEffect(() => {
     let cancelled = false;
     async function run() {
       try {
-        const d = await apiFetch<{ samples: LatestSample[] }>("/metrics/latest", { silent: true });
+        const d = await apiFetch<{ samples: LatestSample[] }>(`/metrics/latest?host=${encodeURIComponent(host)}`, { silent: true });
         if (!cancelled) setData(d.samples);
       } catch { /* keep */ }
     }
+    setData(null);
     void run();
     const h = setInterval(run, 15_000);
     return () => { cancelled = true; clearInterval(h); };
-  }, []);
+  }, [host]);
   return data;
 }
 
 function useContainers(): ContainerRow[] | null {
+  const host = useContext(HostContext);
   const [data, setData] = useState<ContainerRow[] | null>(null);
   useEffect(() => {
     let cancelled = false;
     async function run() {
       try {
-        const d = await apiFetch<{ containers: ContainerRow[] }>("/metrics/containers", { silent: true });
+        const d = await apiFetch<{ containers: ContainerRow[] }>(`/metrics/containers?host=${encodeURIComponent(host)}`, { silent: true });
         if (!cancelled) setData(d.containers);
       } catch { /* keep */ }
     }
+    setData(null);
     void run();
     const h = setInterval(run, 30_000);
     return () => { cancelled = true; clearInterval(h); };
-  }, []);
+  }, [host]);
   return data;
+}
+
+function useHosts(): string[] {
+  const [hosts, setHosts] = useState<string[]>([DEFAULT_HOST]);
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      try {
+        const d = await apiFetch<{ hosts: string[] }>("/metrics/hosts", { silent: true });
+        if (!cancelled && d.hosts.length > 0) setHosts(d.hosts);
+      } catch { /* keep */ }
+    }
+    void run();
+    const h = setInterval(run, 60_000);
+    return () => { cancelled = true; clearInterval(h); };
+  }, []);
+  return hosts;
 }
 
 /* ============================================================= */
@@ -156,9 +192,19 @@ function computeStats(series: SeriesPoint[] | null): SeriesStats | null {
 type RightChartId = "util" | "temp" | "power";
 
 export default function MetricsPage() {
+  const [host, setHost] = useState<string>(DEFAULT_HOST);
+  return (
+    <HostContext.Provider value={host}>
+      <MetricsBody host={host} setHost={setHost} />
+    </HostContext.Provider>
+  );
+}
+
+function MetricsBody({ host, setHost }: { host: string; setHost: (h: string) => void }) {
   const [rangeIdx, setRangeIdx] = useState(2);
   const [rightSelected, setRightSelected] = useState<RightChartId>("util");
   const range = RANGES[rangeIdx]!;
+  const hosts = useHosts();
   const latest = useLatest();
   const containers = useContainers();
 
@@ -195,23 +241,43 @@ export default function MetricsPage() {
             System Metrics
           </h1>
           <p className="text-[11px] text-text-muted mt-0.5">
-            Linux host + RTX 3080 Ti + Docker — 15 秒粒度 / 7 日保持
+            Linux host + Docker — 15 秒粒度 / 7 日保持
           </p>
         </div>
-        <div className="flex items-center gap-1 text-[10px]">
-          {RANGES.map((r, i) => (
-            <button
-              key={r.label}
-              onClick={() => setRangeIdx(i)}
-              className={[
-                "px-2.5 py-1 rounded tabular-nums tracking-wide transition",
-                i === rangeIdx ? "text-[#05070d] font-semibold" : "text-text-muted hover:text-text",
-              ].join(" ")}
-              style={i === rangeIdx ? { background: "#22d3ee", boxShadow: "0 0 8px #22d3eeaa" } : {}}
-            >
-              {r.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          {/* Host switcher */}
+          <div className="flex items-center gap-1 text-[10px]">
+            {hosts.map((h) => (
+              <button
+                key={h}
+                onClick={() => setHost(h)}
+                className={[
+                  "px-3 py-1 rounded tracking-[0.1em] uppercase transition",
+                  h === host ? "text-[#05070d] font-semibold" : "text-text-muted hover:text-text",
+                ].join(" ")}
+                style={h === host ? { background: "#a855f7", boxShadow: "0 0 8px #a855f7aa" } : {}}
+              >
+                {hostLabel(h)}
+              </button>
+            ))}
+          </div>
+          <div className="h-4 w-px bg-white/10" />
+          {/* Range */}
+          <div className="flex items-center gap-1 text-[10px]">
+            {RANGES.map((r, i) => (
+              <button
+                key={r.label}
+                onClick={() => setRangeIdx(i)}
+                className={[
+                  "px-2.5 py-1 rounded tabular-nums tracking-wide transition",
+                  i === rangeIdx ? "text-[#05070d] font-semibold" : "text-text-muted hover:text-text",
+                ].join(" ")}
+                style={i === rangeIdx ? { background: "#22d3ee", boxShadow: "0 0 8px #22d3eeaa" } : {}}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
