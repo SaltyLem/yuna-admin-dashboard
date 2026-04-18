@@ -211,6 +211,9 @@ function buildPayload(user: string, channelId: string, text: string) {
     text,
     timestamp: Date.now(),
     isSuperchat: false,
-    amount: null,
+    amount_raw: null,
+    amount_currency: null,
+    amount_value: null,
+    amount_usd: null,
   };
 }

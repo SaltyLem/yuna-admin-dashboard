@@ -112,7 +112,10 @@ async function generateAndPublish(): Promise<void> {
         text: c.comment,
         timestamp: Date.now(),
         isSuperchat: false,
-        amount: null,
+        amount_raw: null,
+        amount_currency: null,
+        amount_value: null,
+        amount_usd: null,
       };
 
       await pub.publish(`stream:${config.channel}:comments`, JSON.stringify(payload));

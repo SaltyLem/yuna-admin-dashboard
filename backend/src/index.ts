@@ -5,6 +5,7 @@ import commentsRoutes from "./routes/comments.js";
 import personsRoutes from "./routes/persons.js";
 import streamRoutes from "./routes/stream.js";
 import forexRoutes from "./routes/forex.js";
+import { primeForex } from "./forex-client.js";
 import autoReplyRoutes from "./routes/auto-reply.js";
 import aapRoutes from "./routes/additional-auto-play.js";
 import programsRoutes from "./routes/programs.js";
@@ -324,6 +325,9 @@ initDb().catch((err) => console.error("[db] init failed:", err.message));
 startRedisSubscriber().catch((err) => {
   console.error("[redis-sub] failed to start:", err.message);
 });
+
+// Warm the FX cache so the first dummy superchat doesn't race.
+primeForex();
 
 // ── stream_events retention (nightly) ──
 // speak payloads in particular are big — keep 30 days of history so the
