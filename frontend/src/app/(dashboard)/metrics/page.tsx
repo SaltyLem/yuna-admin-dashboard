@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  ReferenceLine,
 } from "recharts";
 import { apiFetch } from "@/components/use-api";
 
@@ -42,19 +43,26 @@ const RANGES: Array<{ label: string; rangeMinutes: number; bucketSeconds: number
   { label: "24h", rangeMinutes: 1440, bucketSeconds: 600 },
 ];
 
-/* Color threshold: value (0-100) → color */
-function threshold(value: number | null, inverted = false): string {
-  if (value == null) return "#475569";
-  const v = inverted ? 100 - value : value;
-  if (v < 60) return "#22d3ee";        // cyan
-  if (v < 80) return "#fbbf24";        // amber
-  return "#f43f5e";                    // rose
-}
+/* ============================================================= */
+/*  color thresholds                                              */
+/* ============================================================= */
 
+function threshold(value: number | null, _inverted = false): string {
+  if (value == null) return "#475569";
+  if (value < 60) return "#22d3ee";
+  if (value < 80) return "#fbbf24";
+  return "#f43f5e";
+}
 function tempColor(temp: number | null): string {
   if (temp == null) return "#475569";
   if (temp < 60) return "#22d3ee";
   if (temp < 75) return "#fbbf24";
+  return "#f43f5e";
+}
+function powerColor(p: number | null): string {
+  if (p == null) return "#475569";
+  if (p < 200) return "#22d3ee";
+  if (p < 300) return "#fbbf24";
   return "#f43f5e";
 }
 
@@ -63,11 +71,8 @@ function tempColor(temp: number | null): string {
 /* ============================================================= */
 
 function useSeries(
-  kind: string,
-  metric: string,
-  subject: string | null,
-  rangeMinutes: number,
-  bucketSeconds: number,
+  kind: string, metric: string, subject: string | null,
+  rangeMinutes: number, bucketSeconds: number,
 ): SeriesPoint[] | null {
   const [data, setData] = useState<SeriesPoint[] | null>(null);
   useEffect(() => {
@@ -78,7 +83,7 @@ function useSeries(
         if (subject !== null) qs.set("subject", subject);
         const d = await apiFetch<SeriesResp>(`/metrics/series?${qs}`, { silent: true });
         if (!cancelled) setData(d.series);
-      } catch { /* keep previous */ }
+      } catch { /* keep */ }
     }
     void run();
     const h = setInterval(run, Math.max(10_000, Math.min(60_000, bucketSeconds * 1000)));
@@ -122,11 +127,34 @@ function useContainers(): ContainerRow[] | null {
 }
 
 /* ============================================================= */
+/*  stats from a series                                           */
+/* ============================================================= */
+
+interface SeriesStats { min: number; max: number; avg: number; latest: number; deltaPct: number | null }
+
+function computeStats(series: SeriesPoint[] | null): SeriesStats | null {
+  if (!series || series.length === 0) return null;
+  let minV = Infinity, maxV = -Infinity, sum = 0, count = 0;
+  for (const p of series) {
+    if (p.avg === 0 && p.min === 0 && p.max === 0) continue;
+    if (p.min < minV) minV = p.min;
+    if (p.max > maxV) maxV = p.max;
+    sum += p.avg;
+    count += 1;
+  }
+  if (count === 0) return null;
+  const avg = sum / count;
+  const latest = series[series.length - 1]?.avg ?? 0;
+  const deltaPct = avg > 0 ? ((latest - avg) / avg) * 100 : null;
+  return { min: minV, max: maxV, avg, latest, deltaPct };
+}
+
+/* ============================================================= */
 /*  page                                                          */
 /* ============================================================= */
 
 export default function MetricsPage() {
-  const [rangeIdx, setRangeIdx] = useState(2); // 1h default
+  const [rangeIdx, setRangeIdx] = useState(2);
   const range = RANGES[rangeIdx]!;
   const latest = useLatest();
   const containers = useContainers();
@@ -150,7 +178,6 @@ export default function MetricsPage() {
 
   return (
     <div className="relative h-full flex flex-col gap-3 overflow-y-auto">
-      {/* Header + range */}
       <header className="flex items-center justify-between shrink-0">
         <div>
           <h1
@@ -175,9 +202,7 @@ export default function MetricsPage() {
               onClick={() => setRangeIdx(i)}
               className={[
                 "px-2.5 py-1 rounded tabular-nums tracking-wide transition",
-                i === rangeIdx
-                  ? "text-[#05070d] font-semibold"
-                  : "text-text-muted hover:text-text",
+                i === rangeIdx ? "text-[#05070d] font-semibold" : "text-text-muted hover:text-text",
               ].join(" ")}
               style={i === rangeIdx ? { background: "#22d3ee", boxShadow: "0 0 8px #22d3eeaa" } : {}}
             >
@@ -187,77 +212,50 @@ export default function MetricsPage() {
         </div>
       </header>
 
-      {/* Row 1: 6 Stat panels (big number + sparkline + threshold color) */}
+      {/* Row 1: 6 Stat panels */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 shrink-0">
-        <StatPanel
-          label="CPU"
-          value={cpuNow} unit="%"
-          color={threshold(cpuNow)}
-          kind="cpu" metric="usage_pct" subject={null} range={range}
-        />
-        <StatPanel
-          label="Memory"
-          value={memPct} unit="%"
-          color={threshold(memPct)}
-          sub={memUsed != null && memTot != null ? `${(memUsed/1024).toFixed(1)} / ${(memTot/1024).toFixed(1)} GB` : undefined}
-          kind="memory" metric="pct" subject={null} range={range}
-        />
-        <StatPanel
-          label="GPU"
-          value={gpu0Util} unit="%"
-          color={threshold(gpu0Util)}
-          sub="RTX 3080 Ti"
-          kind="gpu" metric="usage_pct" subject="0" range={range}
-        />
-        <StatPanel
-          label="VRAM"
-          value={gpu0Vram} unit="%"
-          color={threshold(gpu0Vram)}
-          sub={gpu0VramUsed != null && gpu0VramTot != null ? `${(gpu0VramUsed/1024).toFixed(1)} / ${(gpu0VramTot/1024).toFixed(1)} GB` : undefined}
-          kind="gpu" metric="vram_pct" subject="0" range={range}
-        />
-        <StatPanel
-          label="GPU Temp"
-          value={gpu0Temp} unit="°C"
-          color={tempColor(gpu0Temp)}
-          fixed={0}
-          kind="gpu" metric="temp_c" subject="0" range={range}
-        />
-        <StatPanel
-          label="GPU Power"
-          value={gpu0Power} unit="W"
-          color={gpu0Power != null && gpu0Power > 300 ? "#f43f5e" : gpu0Power != null && gpu0Power > 200 ? "#fbbf24" : "#22d3ee"}
-          fixed={0}
-          kind="gpu" metric="power_w" subject="0" range={range}
-        />
+        <StatPanel label="CPU"       value={cpuNow}      unit="%" color={threshold(cpuNow)}   fixed={1}
+                   kind="cpu"    metric="usage_pct" subject={null} range={range} />
+        <StatPanel label="Memory"    value={memPct}      unit="%" color={threshold(memPct)}   fixed={1}
+                   sub={memUsed != null && memTot != null ? `${(memUsed/1024).toFixed(1)} / ${(memTot/1024).toFixed(1)} GB` : undefined}
+                   kind="memory" metric="pct" subject={null} range={range} />
+        <StatPanel label="GPU"       value={gpu0Util}    unit="%" color={threshold(gpu0Util)} fixed={1} sub="RTX 3080 Ti"
+                   kind="gpu" metric="usage_pct" subject="0" range={range} />
+        <StatPanel label="VRAM"      value={gpu0Vram}    unit="%" color={threshold(gpu0Vram)} fixed={1}
+                   sub={gpu0VramUsed != null && gpu0VramTot != null ? `${(gpu0VramUsed/1024).toFixed(1)} / ${(gpu0VramTot/1024).toFixed(1)} GB` : undefined}
+                   kind="gpu" metric="vram_pct" subject="0" range={range} />
+        <StatPanel label="GPU Temp"  value={gpu0Temp}    unit="°C" color={tempColor(gpu0Temp)} fixed={0}
+                   kind="gpu" metric="temp_c" subject="0" range={range} />
+        <StatPanel label="GPU Power" value={gpu0Power}   unit="W" color={powerColor(gpu0Power)} fixed={0}
+                   kind="gpu" metric="power_w" subject="0" range={range} />
       </div>
 
-      {/* Row 2: Radial gauges (3) */}
+      {/* Row 2: Radial gauges */}
       <div className="grid grid-cols-3 gap-3 shrink-0">
-        <RadialGauge title="CPU" value={cpuNow} unit="%" color={threshold(cpuNow)} />
-        <RadialGauge title="Memory" value={memPct} unit="%" color={threshold(memPct)}
-          caption={memUsed != null && memTot != null ? `${(memUsed/1024).toFixed(1)}/${(memTot/1024).toFixed(1)} GB` : undefined} />
-        <RadialGauge title="GPU" value={gpu0Util} unit="%" color={threshold(gpu0Util)}
-          caption={gpu0Temp != null ? `${Math.round(gpu0Temp)}°C · ${gpu0Power ? Math.round(gpu0Power) : "?"}W` : undefined} />
+        <GaugeWithStats title="CPU"    value={cpuNow}  unit="%" color={threshold(cpuNow)}
+                        kind="cpu"    metric="usage_pct" subject={null} range={range} />
+        <GaugeWithStats title="Memory" value={memPct}  unit="%" color={threshold(memPct)}
+                        sub={memUsed != null && memTot != null ? `${(memUsed/1024).toFixed(1)} / ${(memTot/1024).toFixed(1)} GB` : undefined}
+                        kind="memory" metric="pct" subject={null} range={range} />
+        <GaugeWithStats title="GPU"    value={gpu0Util} unit="%" color={threshold(gpu0Util)}
+                        sub={gpu0Temp != null ? `${Math.round(gpu0Temp)}°C · ${gpu0Power ? Math.round(gpu0Power) : "?"} W` : undefined}
+                        kind="gpu" metric="usage_pct" subject="0" range={range} />
       </div>
 
-      {/* Row 3: overlaid utilization chart (CPU + GPU + Memory %) */}
-      <Panel title="Utilization" accent="#22d3ee">
-        <OverlayChart range={range} />
-      </Panel>
+      {/* Row 3: Utilization overlay */}
+      <UtilizationCard range={range} cpuNow={cpuNow} gpuNow={gpu0Util} memNow={memPct} />
 
-      {/* Row 4: GPU secondary metrics (temp + power) */}
+      {/* Row 4: Temp / Power with side stats */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-        <Panel title="GPU Temp" accent="#fb7185">
-          <MetricAreaChart kind="gpu" subject="0" metric="temp_c" color="#fb7185" range={range} unit="°C" />
-        </Panel>
-        <Panel title="GPU Power" accent="#fbbf24">
-          <MetricAreaChart kind="gpu" subject="0" metric="power_w" color="#fbbf24" range={range} unit="W" />
-        </Panel>
+        <ChartWithStats title="GPU Temp" accent="#fb7185" unit="°C"
+                        kind="gpu" metric="temp_c" subject="0" range={range} colorFn={tempColor} thresholdLines={[60, 75]} />
+        <ChartWithStats title="GPU Power" accent="#fbbf24" unit="W"
+                        kind="gpu" metric="power_w" subject="0" range={range} colorFn={powerColor} thresholdLines={[200, 300]} />
       </div>
 
       {/* Row 5: Containers */}
-      <Panel title="Docker Containers" accent="#f472b6">
+      <Panel title="Docker Containers" accent="#f472b6"
+             right={containers ? `${containers.length} running` : undefined}>
         <ContainerTable rows={containers} />
       </Panel>
     </div>
@@ -265,10 +263,14 @@ export default function MetricsPage() {
 }
 
 /* ============================================================= */
-/*  Panel                                                         */
+/*  Panel wrapper                                                 */
 /* ============================================================= */
 
-function Panel({ title, accent = "#22d3ee", children, className = "" }: { title: string; accent?: string; children: React.ReactNode; className?: string }) {
+function Panel({
+  title, accent = "#22d3ee", right, children, className = "",
+}: {
+  title: string; accent?: string; right?: React.ReactNode; children: React.ReactNode; className?: string;
+}) {
   return (
     <section
       className={[
@@ -285,7 +287,8 @@ function Panel({ title, accent = "#22d3ee", children, className = "" }: { title:
         >
           {title}
         </div>
-        <div className="ml-auto h-px flex-1" style={{ background: `linear-gradient(90deg, ${accent}33, transparent)` }} />
+        <div className="ml-auto h-px flex-1 min-w-[20px]" style={{ background: `linear-gradient(90deg, ${accent}33, transparent)` }} />
+        {right && <div className="text-[10px] text-text-muted tabular-nums shrink-0">{right}</div>}
       </div>
       <div className="flex-1 min-h-0 px-3 pb-3 pt-1">{children}</div>
     </section>
@@ -293,7 +296,7 @@ function Panel({ title, accent = "#22d3ee", children, className = "" }: { title:
 }
 
 /* ============================================================= */
-/*  StatPanel (Grafana-style stat with sparkline)                 */
+/*  StatPanel                                                     */
 /* ============================================================= */
 
 function StatPanel({
@@ -312,37 +315,55 @@ function StatPanel({
   range: typeof RANGES[number];
 }) {
   const series = useSeries(kind, metric, subject, range.rangeMinutes, range.bucketSeconds);
+  const stats = useMemo(() => computeStats(series), [series]);
   const gid = `sp-${kind}-${metric}-${(subject ?? "h").replace(/[^a-z0-9]/gi, "")}`;
+
+  const delta = stats?.deltaPct ?? null;
+  const trendIcon = delta == null ? "" : delta > 5 ? "↗" : delta < -5 ? "↘" : "→";
+  const trendColor = delta == null ? "#64748b" : delta > 5 ? "#f43f5e" : delta < -5 ? "#22d3ee" : "#64748b";
 
   return (
     <div
       className="relative rounded-lg border overflow-hidden flex flex-col"
       style={{
-        background: `linear-gradient(180deg, ${color}08 0%, #0b1120cc 60%)`,
+        background: `linear-gradient(180deg, ${color}10 0%, #0b1120cc 70%)`,
         borderColor: `${color}55`,
         boxShadow: `0 0 18px -8px ${color}66, 0 0 1px ${color}44 inset`,
-        minHeight: 110,
+        minHeight: 132,
       }}
     >
-      <div className="px-3 pt-2 shrink-0">
+      <div className="px-3 pt-2 flex items-start justify-between gap-1 shrink-0">
         <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: `${color}aa` }}>
           {label}
         </div>
+        {trendIcon && (
+          <span className="text-[11px] font-semibold tabular-nums" style={{ color: trendColor }}>
+            {trendIcon} {delta == null ? "" : `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%`}
+          </span>
+        )}
+      </div>
+      <div className="px-3 mt-0.5">
         <div
-          className="text-3xl font-bold tabular-nums leading-none mt-1"
+          className="text-3xl font-bold tabular-nums leading-none"
           style={{ color, textShadow: `0 0 14px ${color}88` }}
         >
           {value == null ? "—" : value.toFixed(fixed)}
           <span className="text-sm font-normal ml-0.5 opacity-60">{unit}</span>
         </div>
-        {sub && <div className="text-[10px] text-text-muted mt-0.5 tabular-nums truncate">{sub}</div>}
+        {sub && <div className="text-[10px] text-text-muted mt-1 tabular-nums truncate">{sub}</div>}
       </div>
-      <div className="flex-1 min-h-[34px] mt-1">
+      {/* min / avg / max */}
+      <div className="px-3 mt-1 flex items-center justify-between text-[9px] tabular-nums">
+        <span className="text-text-faint">min <span className="text-text-muted">{stats ? stats.min.toFixed(fixed) : "—"}</span></span>
+        <span className="text-text-faint">avg <span className="text-text-muted">{stats ? stats.avg.toFixed(fixed) : "—"}</span></span>
+        <span className="text-text-faint">max <span className="text-text-muted">{stats ? stats.max.toFixed(fixed) : "—"}</span></span>
+      </div>
+      <div className="flex-1 min-h-[36px] mt-1">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={series ?? []} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+          <AreaChart data={series ?? []} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.5} />
+                <stop offset="0%" stopColor={color} stopOpacity={0.55} />
                 <stop offset="100%" stopColor={color} stopOpacity={0} />
               </linearGradient>
             </defs>
@@ -355,139 +376,232 @@ function StatPanel({
 }
 
 /* ============================================================= */
-/*  RadialGauge                                                   */
+/*  GaugeWithStats — donut + axis legend + range stats            */
 /* ============================================================= */
 
-function RadialGauge({
-  title, value, unit, color, caption,
+function GaugeWithStats({
+  title, value, unit, color, sub,
+  kind, metric, subject, range,
 }: {
   title: string;
   value: number | null;
   unit: string;
   color: string;
-  caption?: string;
+  sub?: string;
+  kind: string;
+  metric: string;
+  subject: string | null;
+  range: typeof RANGES[number];
 }) {
+  const series = useSeries(kind, metric, subject, range.rangeMinutes, range.bucketSeconds);
+  const stats = useMemo(() => computeStats(series), [series]);
+
   const v = value == null ? 0 : Math.max(0, Math.min(100, value));
-  const r = 42;
+  const r = 48;
   const circum = 2 * Math.PI * r;
   const offset = circum * (1 - v / 100);
+
   return (
     <Panel title={title} accent={color}>
-      <div className="flex items-center justify-center py-2">
-        <div className="relative" style={{ width: 120, height: 120 }}>
-          <svg width="120" height="120" viewBox="0 0 120 120">
+      <div className="flex items-center gap-3">
+        {/* Gauge */}
+        <div className="relative shrink-0" style={{ width: 140, height: 140 }}>
+          <svg width="140" height="140" viewBox="0 0 140 140">
             <defs>
-              <filter id={`gauge-glow-${title}`}>
-                <feGaussianBlur stdDeviation="2" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
+              <filter id={`gg-${title}`}>
+                <feGaussianBlur stdDeviation="2.5" result="b" />
+                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
             </defs>
-            {/* Track */}
+
+            {/* Threshold zones drawn as faint background arcs */}
+            <ArcZone cx={70} cy={70} r={r} from={0}   to={60}  stroke="#22d3ee" />
+            <ArcZone cx={70} cy={70} r={r} from={60}  to={80}  stroke="#fbbf24" />
+            <ArcZone cx={70} cy={70} r={r} from={80}  to={100} stroke="#f43f5e" />
+
+            {/* Base track */}
+            <circle cx="70" cy="70" r={r} fill="none" stroke="#1e293b" strokeWidth="9" opacity={0.6} />
+            {/* Value arc */}
             <circle
-              cx="60" cy="60" r={r}
-              fill="none"
-              stroke="#1e293b"
-              strokeWidth="8"
-            />
-            {/* Value */}
-            <circle
-              cx="60" cy="60" r={r}
-              fill="none"
-              stroke={color}
-              strokeWidth="8"
-              strokeLinecap="round"
+              cx="70" cy="70" r={r}
+              fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
               strokeDasharray={circum}
               strokeDashoffset={offset}
-              transform="rotate(-90 60 60)"
-              filter={`url(#gauge-glow-${title})`}
-              style={{ transition: "stroke-dashoffset 600ms ease" }}
+              transform="rotate(-90 70 70)"
+              filter={`url(#gg-${title})`}
+              style={{ transition: "stroke-dashoffset 700ms ease" }}
             />
-            {/* tick marks */}
-            {Array.from({ length: 12 }).map((_, i) => {
-              const angle = (i / 12) * 2 * Math.PI - Math.PI / 2;
-              const r1 = r + 10;
-              const r2 = r + 14;
+            {/* Tick marks at 0 / 25 / 50 / 75 / 100 (inside) */}
+            {[0, 25, 50, 75, 100].map((pct) => {
+              const a = (pct / 100) * 2 * Math.PI - Math.PI / 2;
+              const r1 = r - 10, r2 = r - 6;
               return (
-                <line
-                  key={i}
-                  x1={60 + Math.cos(angle) * r1}
-                  y1={60 + Math.sin(angle) * r1}
-                  x2={60 + Math.cos(angle) * r2}
-                  y2={60 + Math.sin(angle) * r2}
-                  stroke="#475569"
-                  strokeWidth="1"
-                />
+                <g key={pct}>
+                  <line
+                    x1={70 + Math.cos(a) * r1}
+                    y1={70 + Math.sin(a) * r1}
+                    x2={70 + Math.cos(a) * r2}
+                    y2={70 + Math.sin(a) * r2}
+                    stroke="#64748b"
+                    strokeWidth={1}
+                  />
+                </g>
               );
             })}
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <div
-              className="text-2xl font-bold tabular-nums"
-              style={{ color, textShadow: `0 0 12px ${color}66` }}
+              className="text-[26px] font-bold tabular-nums leading-none"
+              style={{ color, textShadow: `0 0 10px ${color}66` }}
             >
               {value == null ? "—" : v.toFixed(1)}
-              <span className="text-xs opacity-60 ml-0.5">{unit}</span>
             </div>
-            {caption && <div className="text-[9px] text-text-muted mt-0.5">{caption}</div>}
+            <div className="text-[10px] opacity-60 mt-0.5" style={{ color }}>{unit}</div>
           </div>
+        </div>
+
+        {/* Side stats */}
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <GaugeStat label="min"  value={stats?.min}    unit={unit} color="#22d3ee" />
+          <GaugeStat label="avg"  value={stats?.avg}    unit={unit} color="#fbbf24" />
+          <GaugeStat label="max"  value={stats?.max}    unit={unit} color="#f43f5e" />
+          {sub && (
+            <div className="text-[10px] text-text-muted pt-1 border-t border-white/5 tabular-nums break-all">
+              {sub}
+            </div>
+          )}
         </div>
       </div>
     </Panel>
   );
 }
 
+function ArcZone({ cx, cy, r, from, to, stroke }: { cx: number; cy: number; r: number; from: number; to: number; stroke: string }) {
+  const start = (from / 100) * 2 * Math.PI - Math.PI / 2;
+  const end = (to / 100) * 2 * Math.PI - Math.PI / 2;
+  const x1 = cx + Math.cos(start) * r;
+  const y1 = cy + Math.sin(start) * r;
+  const x2 = cx + Math.cos(end) * r;
+  const y2 = cy + Math.sin(end) * r;
+  const large = to - from > 50 ? 1 : 0;
+  return (
+    <path
+      d={`M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`}
+      fill="none"
+      stroke={stroke}
+      strokeWidth={2}
+      strokeOpacity={0.15}
+    />
+  );
+}
+
+function GaugeStat({ label, value, unit, color }: { label: string; value?: number; unit: string; color: string }) {
+  return (
+    <div className="flex items-center justify-between text-[10px] tabular-nums">
+      <span className="inline-flex items-center gap-1">
+        <span className="h-1 w-1 rounded-full" style={{ background: color, boxShadow: `0 0 4px ${color}` }} />
+        <span className="text-text-faint uppercase tracking-wider">{label}</span>
+      </span>
+      <span className="text-text-muted">
+        {value == null ? "—" : value.toFixed(1)}
+        <span className="text-text-faint ml-0.5">{unit}</span>
+      </span>
+    </div>
+  );
+}
+
 /* ============================================================= */
-/*  OverlayChart (CPU + GPU + Memory % on one axis)               */
+/*  Utilization overlay card                                      */
 /* ============================================================= */
 
-function OverlayChart({ range }: { range: typeof RANGES[number] }) {
+function UtilizationCard({
+  range, cpuNow, gpuNow, memNow,
+}: {
+  range: typeof RANGES[number];
+  cpuNow: number | null;
+  gpuNow: number | null;
+  memNow: number | null;
+}) {
   const cpu = useSeries("cpu", "usage_pct", null, range.rangeMinutes, range.bucketSeconds);
   const gpu = useSeries("gpu", "usage_pct", "0", range.rangeMinutes, range.bucketSeconds);
   const mem = useSeries("memory", "pct", null, range.rangeMinutes, range.bucketSeconds);
 
-  const series = mergeSeries({ cpu, gpu, mem });
+  const series = useMemo(() => mergeSeries({ cpu, gpu, mem }), [cpu, gpu, mem]);
   const hasData = series.some(p => (p.cpu ?? 0) + (p.gpu ?? 0) + (p.mem ?? 0) > 0);
 
   return (
-    <div className="h-60 w-full relative">
-      {!hasData && (
-        <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint pointer-events-none z-10">
-          no samples in {range.label}
+    <Panel title="Utilization" accent="#22d3ee" right={`${range.label} window`}>
+      <div className="grid grid-cols-12 gap-3">
+        <div className="col-span-12 xl:col-span-9 relative h-60">
+          {!hasData && (
+            <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint pointer-events-none z-10">
+              no samples in {range.label}
+            </div>
+          )}
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid stroke="#ffffff10" vertical={false} />
+              <XAxis
+                dataKey="t"
+                tickFormatter={(v: number) => formatTick(Number(v), range.rangeMinutes)}
+                stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} minTickGap={32}
+              />
+              <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} width={30}
+                tickFormatter={(v: number) => `${v}%`} />
+              <ReferenceLine y={80} stroke="#f43f5e22" strokeDasharray="3 3" />
+              <ReferenceLine y={60} stroke="#fbbf2422" strokeDasharray="3 3" />
+              <Tooltip
+                contentStyle={{ background: "#0b1120", border: "1px solid #22d3ee66", fontSize: 11 }}
+                labelFormatter={(v) => new Date(Number(v)).toLocaleString()}
+                formatter={(v, name) => [`${Number(v).toFixed(1)}%`, String(name)]}
+              />
+              <Line type="monotone" dataKey="cpu" stroke="#22d3ee" strokeWidth={1.8} dot={false} isAnimationActive={false} />
+              <Line type="monotone" dataKey="gpu" stroke="#a855f7" strokeWidth={1.8} dot={false} isAnimationActive={false} />
+              <Line type="monotone" dataKey="mem" stroke="#38bdf8" strokeWidth={1.6} dot={false} isAnimationActive={false} strokeDasharray="4 3" />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
-      )}
-      <div className="absolute top-1 right-2 flex items-center gap-3 text-[10px] z-10">
-        <LegendDot color="#22d3ee" label="CPU" />
-        <LegendDot color="#a855f7" label="GPU" />
-        <LegendDot color="#38bdf8" label="Memory" />
+
+        {/* Side legend with current values */}
+        <div className="col-span-12 xl:col-span-3 flex flex-col justify-center gap-2">
+          <LegendBigValue color="#22d3ee" label="CPU"    value={cpuNow} />
+          <LegendBigValue color="#a855f7" label="GPU"    value={gpuNow} />
+          <LegendBigValue color="#38bdf8" label="Memory" value={memNow} dashed />
+        </div>
       </div>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={series} margin={{ top: 16, right: 8, bottom: 0, left: 0 }}>
-          <CartesianGrid stroke="#ffffff10" vertical={false} />
-          <XAxis
-            dataKey="t"
-            tickFormatter={(v: number) => formatTick(Number(v), range.rangeMinutes)}
-            stroke="#64748b"
-            fontSize={10}
-            tickLine={false}
-            axisLine={false}
-            minTickGap={32}
-          />
-          <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false}
-            domain={[0, 100]} width={30}
-            tickFormatter={(v: number) => `${v}%`} />
-          <Tooltip
-            contentStyle={{ background: "#0b1120", border: "1px solid #22d3ee66", fontSize: 11 }}
-            labelFormatter={(v) => new Date(Number(v)).toLocaleString()}
-            formatter={(v, name) => [`${Number(v).toFixed(1)}%`, String(name)]}
-          />
-          <Line type="monotone" dataKey="cpu" stroke="#22d3ee" strokeWidth={1.6} dot={false} isAnimationActive={false} />
-          <Line type="monotone" dataKey="gpu" stroke="#a855f7" strokeWidth={1.6} dot={false} isAnimationActive={false} />
-          <Line type="monotone" dataKey="mem" stroke="#38bdf8" strokeWidth={1.6} dot={false} isAnimationActive={false} strokeDasharray="4 3" />
-        </LineChart>
-      </ResponsiveContainer>
+    </Panel>
+  );
+}
+
+function LegendBigValue({
+  color, label, value, dashed,
+}: { color: string; label: string; value: number | null; dashed?: boolean }) {
+  return (
+    <div
+      className="rounded-md border px-3 py-2 flex items-center gap-2.5"
+      style={{
+        background: `linear-gradient(90deg, ${color}0a, transparent)`,
+        borderColor: `${color}33`,
+      }}
+    >
+      <span
+        className="inline-block h-3 w-0.5 rounded"
+        style={{
+          background: color,
+          boxShadow: `0 0 6px ${color}`,
+          borderRight: dashed ? `1px dashed ${color}` : undefined,
+        }}
+      />
+      <div className="flex-1 min-w-0">
+        <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: `${color}aa` }}>{label}</div>
+        <div
+          className="text-xl font-bold tabular-nums leading-none"
+          style={{ color, textShadow: `0 0 10px ${color}66` }}
+        >
+          {value == null ? "—" : value.toFixed(1)}
+          <span className="text-xs ml-0.5 opacity-60">%</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -508,109 +622,116 @@ function mergeSeries(inputs: { cpu: SeriesPoint[] | null; gpu: SeriesPoint[] | n
   return [...byT.values()].sort((a, b) => a.t - b.t);
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-1">
-      <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
-      <span style={{ color }}>{label}</span>
-    </div>
-  );
-}
-
 /* ============================================================= */
-/*  Single-metric area chart (used for temp / power)              */
+/*  ChartWithStats (Temp / Power)                                 */
 /* ============================================================= */
 
-function MetricAreaChart({
-  kind, metric, color, range, subject = null, unit = "",
+function ChartWithStats({
+  title, accent, unit, kind, metric, subject, range, colorFn, thresholdLines,
 }: {
+  title: string;
+  accent: string;
+  unit: string;
   kind: string;
   metric: string;
-  color: string;
+  subject: string | null;
   range: typeof RANGES[number];
-  subject?: string | null;
-  unit?: string;
+  colorFn?: (v: number | null) => string;
+  thresholdLines?: number[];
 }) {
   const series = useSeries(kind, metric, subject, range.rangeMinutes, range.bucketSeconds);
+  const stats = useMemo(() => computeStats(series), [series]);
   const hasData = series?.some(p => p.avg > 0) ?? false;
-  const gid = `m-${kind}-${metric}-${(subject ?? "h").replace(/[^a-z0-9]/gi, "")}`;
+  const gid = `cs-${kind}-${metric}-${(subject ?? "h").replace(/[^a-z0-9]/gi, "")}`;
+  const currentColor = colorFn ? colorFn(stats?.latest ?? null) : accent;
 
   return (
-    <div className="h-48 w-full relative">
-      {series == null && (
-        <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint">loading…</div>
-      )}
-      {series != null && !hasData && (
-        <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint pointer-events-none z-10">
-          no samples in {range.label}
-        </div>
-      )}
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={series ?? []} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-          <defs>
-            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.55} />
-              <stop offset="100%" stopColor={color} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid stroke="#ffffff10" vertical={false} />
-          <XAxis
-            dataKey="t"
-            tickFormatter={(v: number) => formatTick(Number(v), range.rangeMinutes)}
-            stroke="#64748b"
-            fontSize={10}
-            tickLine={false}
-            axisLine={false}
-            minTickGap={32}
-          />
-          <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} width={28}
-            tickFormatter={(v: number) => `${v >= 1000 ? (v/1000).toFixed(1) + "k" : v.toFixed(0)}`} />
-          <Tooltip
-            contentStyle={{ background: "#0b1120", border: `1px solid ${color}66`, fontSize: 11 }}
-            labelFormatter={(v) => new Date(Number(v)).toLocaleString()}
-            formatter={(v) => [`${Number(v).toFixed(2)}${unit ? " " + unit : ""}`, metric]}
-          />
-          <Area type="monotone" dataKey="avg" stroke={color} strokeWidth={1.6} fill={`url(#${gid})`} isAnimationActive={false} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
+    <Panel
+      title={title}
+      accent={accent}
+      right={stats
+        ? <span>
+            <span className="text-text-faint">min </span>{stats.min.toFixed(0)}{unit}
+            <span className="text-text-faint ml-2">avg </span>{stats.avg.toFixed(0)}{unit}
+            <span className="text-text-faint ml-2">max </span>{stats.max.toFixed(0)}{unit}
+          </span>
+        : undefined}
+    >
+      <div className="flex items-baseline gap-2 mb-1">
+        <span
+          className="text-3xl font-bold tabular-nums"
+          style={{ color: currentColor, textShadow: `0 0 10px ${currentColor}66` }}
+        >
+          {stats ? stats.latest.toFixed(0) : "—"}
+        </span>
+        <span className="text-sm opacity-60" style={{ color: currentColor }}>{unit}</span>
+      </div>
+      <div className="h-40 relative">
+        {!hasData && (
+          <div className="absolute inset-0 flex items-center justify-center text-[10px] text-text-faint pointer-events-none z-10">
+            no samples in {range.label}
+          </div>
+        )}
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={series ?? []} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={accent} stopOpacity={0.5} />
+                <stop offset="100%" stopColor={accent} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#ffffff10" vertical={false} />
+            <XAxis
+              dataKey="t"
+              tickFormatter={(v: number) => formatTick(Number(v), range.rangeMinutes)}
+              stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} minTickGap={32}
+            />
+            <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} width={28} />
+            {thresholdLines?.map((y, i) => (
+              <ReferenceLine key={i} y={y} stroke={i === 0 ? "#fbbf2244" : "#f43f5e44"} strokeDasharray="3 3" />
+            ))}
+            <Tooltip
+              contentStyle={{ background: "#0b1120", border: `1px solid ${accent}66`, fontSize: 11 }}
+              labelFormatter={(v) => new Date(Number(v)).toLocaleString()}
+              formatter={(v) => [`${Number(v).toFixed(1)}${unit ? " " + unit : ""}`, metric]}
+            />
+            <Area type="monotone" dataKey="avg" stroke={accent} strokeWidth={1.6} fill={`url(#${gid})`} isAnimationActive={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </Panel>
   );
 }
 
 function formatTick(ms: number, rangeMinutes: number): string {
   const d = new Date(ms);
-  if (rangeMinutes >= 60 * 24) {
-    return d.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit" });
-  }
-  if (rangeMinutes >= 60 * 6) {
-    return d.toLocaleString([], { hour: "2-digit", minute: "2-digit" });
-  }
+  if (rangeMinutes >= 60 * 24) return d.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit" });
+  if (rangeMinutes >= 60 * 6) return d.toLocaleString([], { hour: "2-digit", minute: "2-digit" });
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 /* ============================================================= */
-/*  Container table — each row has inline sparkline on CPU %      */
+/*  Container table with dual sparklines                          */
 /* ============================================================= */
 
 function ContainerTable({ rows }: { rows: ContainerRow[] | null }) {
   if (rows == null) return <div className="h-20 flex items-center justify-center text-[11px] text-text-faint">loading…</div>;
   if (rows.length === 0) return <div className="h-20 flex items-center justify-center text-[11px] text-text-faint">no running containers</div>;
   return (
-    <div className="overflow-auto max-h-[380px] scrollbar-none">
+    <div className="overflow-auto max-h-[420px] scrollbar-none">
       <table className="w-full text-[11px]">
-        <thead>
+        <thead className="sticky top-0 bg-[#0b1120]/90 backdrop-blur-sm">
           <tr className="text-text-faint uppercase tracking-wider text-[9px]">
-            <th className="text-left px-2 py-1">container</th>
-            <th className="text-left px-2 py-1 w-24">CPU %</th>
-            <th className="text-right px-2 py-1 w-48">CPU trend (1h)</th>
-            <th className="text-right px-2 py-1 w-28">Memory</th>
-            <th className="text-right px-2 py-1 w-16">Mem %</th>
+            <th className="text-left px-2 py-1.5">container</th>
+            <th className="text-left px-2 py-1.5 w-20">CPU %</th>
+            <th className="text-left px-2 py-1.5 w-40">CPU trend (1h)</th>
+            <th className="text-right px-2 py-1.5 w-24">Memory</th>
+            <th className="text-left px-2 py-1.5 w-40">Mem trend</th>
+            <th className="text-right px-2 py-1.5 w-12">%</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <ContainerRowView key={r.subject} row={r} />
-          ))}
+          {rows.map((r) => <ContainerRowView key={r.subject} row={r} />)}
         </tbody>
       </table>
     </div>
@@ -618,45 +739,44 @@ function ContainerTable({ rows }: { rows: ContainerRow[] | null }) {
 }
 
 function ContainerRowView({ row }: { row: ContainerRow }) {
-  const trend = useSeries("docker", "cpu_pct", row.subject, 60, 60);
-  const color = threshold(row.cpuPct);
+  const cpu = useSeries("docker", "cpu_pct", row.subject, 60, 60);
+  const mem = useSeries("docker", "mem_used_mb", row.subject, 60, 60);
+  const cpuColor = threshold(row.cpuPct);
+  const memColor = threshold(row.memPct);
   return (
     <tr className="border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition">
-      <td className="px-2 py-1 text-text truncate max-w-[260px]" title={row.subject}>{row.subject}</td>
-      <td className="px-2 py-1">
-        <div className="flex items-center gap-2">
-          <span
-            className="text-[12px] font-semibold tabular-nums"
-            style={{ color, textShadow: `0 0 6px ${color}44` }}
-          >
-            {row.cpuPct.toFixed(1)}%
-          </span>
-        </div>
+      <td className="px-2 py-1 text-text truncate max-w-[240px]" title={row.subject}>{row.subject}</td>
+      <td className="px-2 py-1 tabular-nums font-semibold" style={{ color: cpuColor, textShadow: `0 0 4px ${cpuColor}44` }}>
+        {row.cpuPct.toFixed(1)}%
       </td>
-      <td className="px-2 py-1 w-48">
-        <MiniSpark data={trend ?? []} color={color} />
+      <td className="px-2 py-1">
+        <MiniSpark data={cpu ?? []} color={cpuColor} />
       </td>
       <td className="px-2 py-1 text-right tabular-nums text-text-muted">
         {row.memMb < 1024 ? `${row.memMb.toFixed(0)} MB` : `${(row.memMb/1024).toFixed(2)} GB`}
       </td>
-      <td className="px-2 py-1 text-right tabular-nums text-text-muted">{row.memPct.toFixed(1)}%</td>
+      <td className="px-2 py-1">
+        <MiniSpark data={mem ?? []} color={memColor} />
+      </td>
+      <td className="px-2 py-1 text-right tabular-nums" style={{ color: memColor }}>{row.memPct.toFixed(1)}%</td>
     </tr>
   );
 }
 
 function MiniSpark({ data, color }: { data: SeriesPoint[]; color: string }) {
   if (data.length === 0) return <div className="h-6 w-full text-right text-text-faint text-[9px]">—</div>;
+  const gid = `spark-${color.replace("#", "")}-${Math.random().toString(36).slice(2, 8)}`;
   return (
     <div className="h-6 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
           <defs>
-            <linearGradient id={`spark-${color.slice(1)}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={color} stopOpacity={0.6} />
               <stop offset="100%" stopColor={color} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <Area type="monotone" dataKey="avg" stroke={color} strokeWidth={1.2} fill={`url(#spark-${color.slice(1)})`} isAnimationActive={false} />
+          <Area type="monotone" dataKey="avg" stroke={color} strokeWidth={1.2} fill={`url(#${gid})`} isAnimationActive={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
