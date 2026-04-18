@@ -374,8 +374,9 @@ function CommentsFeedColumn({ channel, data, loading }: { channel: Channel; data
       {rows.map((c) => (
         <div
           key={c.id}
+          onClick={() => openCommentDetail(c)}
           className={[
-            "rounded-md px-1.5 py-1 text-[11px] border transition",
+            "rounded-md px-1.5 py-1 text-[11px] border transition cursor-pointer",
             c.isSuperchat
               ? "bg-amber-500/10 border-amber-500/30 shadow-[0_0_8px_rgba(251,191,36,0.2)]"
               : "bg-white/[0.02] border-white/5 hover:bg-white/[0.05]",
@@ -595,6 +596,196 @@ function openDirectorDetail(channel: Channel, it: DirectorIter): void {
     size: "lg",
     content: <DirectorDetail channel={channel} it={it} info={info} />,
   });
+}
+
+function openCommentDetail(c: UiComment): void {
+  modal.open({
+    title: `Comment · ${c.user}`,
+    size: "lg",
+    content: <CommentDetail comment={c} />,
+  });
+}
+
+interface PersonDetailResp {
+  person: {
+    id: string;
+    primary_name: string;
+    nickname: string | null;
+    my_nickname: string | null;
+    type: string;
+    note: string | null;
+    interaction_count: number;
+    familiarity: number;
+    sentiment: number;
+    trust: number;
+    gratitude: number;
+    donation_total: number;
+    relationship_level: number;
+    first_seen_at: string;
+    last_seen_at: string;
+  } | null;
+  identities: Array<{
+    platform: string;
+    platform_user_id: string;
+    display_name: string | null;
+    verified: boolean;
+  }>;
+  comments: Array<{
+    text: string;
+    is_superchat: boolean;
+    amount: string | null;
+    commented_at: string;
+    display_name: string;
+    nickname: string | null;
+    session_id: string;
+    language: string;
+    title: string | null;
+  }>;
+}
+
+function CommentDetail({ comment }: { comment: UiComment }) {
+  const [loaded, setLoaded] = useState<PersonDetailResp | null>(null);
+  const [status, setStatus] = useState<"loading" | "ok" | "not_found" | "error">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!comment.authorChannelId) {
+        setStatus("not_found");
+        return;
+      }
+      try {
+        const d = await apiFetch<PersonDetailResp>(
+          `/persons/by-identity?platform=youtube&uid=${encodeURIComponent(comment.authorChannelId)}`,
+          { silent: true },
+        );
+        if (cancelled) return;
+        setLoaded(d);
+        setStatus(d.person ? "ok" : "not_found");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    }
+    void run();
+    return () => { cancelled = true; };
+  }, [comment.authorChannelId]);
+
+  const p = loaded?.person;
+
+  return (
+    <div className="space-y-4 text-[12px]">
+      {/* the clicked comment itself */}
+      <Section title="This comment" accent={comment.isSuperchat ? "#fbbf24" : "#38bdf8"}>
+        <div className="flex items-center gap-2 text-[10px] text-text-muted mb-1">
+          <span className="rounded px-1 text-[9px] font-semibold"
+            style={{ color: CHANNEL_COLOR[comment.channel], background: `${CHANNEL_COLOR[comment.channel]}18` }}>
+            {CHANNEL_LABEL[comment.channel]}
+          </span>
+          {comment.isSuperchat && <span className="text-amber-300">★ {comment.amount ?? ""}</span>}
+          <span className="tabular-nums">{new Date(comment.at).toLocaleString()}</span>
+        </div>
+        <div className="text-text whitespace-pre-wrap">{comment.text}</div>
+      </Section>
+
+      {status === "loading" && <Loader />}
+
+      {status === "not_found" && (
+        <Section title="User" accent="#94a3b8">
+          <div className="text-[12px] text-text-muted">
+            {comment.authorChannelId
+              ? "このユーザーは DB にまだ存在しません"
+              : "authorChannelId が取得できませんでした"}
+          </div>
+          {comment.authorChannelId && (
+            <div className="mt-1 text-[10px] text-text-faint break-all">
+              youtube : {comment.authorChannelId}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {status === "error" && (
+        <Section title="User" accent="#ef4444">
+          <div className="text-rose-300 text-[12px]">lookup failed</div>
+        </Section>
+      )}
+
+      {status === "ok" && p && (
+        <>
+          <Section title="User" accent={CHANNEL_COLOR[comment.channel]}>
+            <div className="flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] font-semibold text-text">{p.primary_name}</div>
+                {p.nickname && <div className="text-[11px] text-text-muted">({p.nickname})</div>}
+                {p.note && <div className="mt-1 text-[11px] text-text-muted whitespace-pre-wrap">{p.note}</div>}
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-[9px] uppercase tracking-wider text-text-faint">Lv.</div>
+                <div className="text-2xl font-bold tabular-nums text-fuchsia-300"
+                  style={{ textShadow: "0 0 10px rgba(232,121,249,0.5)" }}>
+                  {p.relationship_level}
+                </div>
+              </div>
+            </div>
+          </Section>
+
+          <div className="grid grid-cols-3 gap-2">
+            <Kv label="Fam"     value={safeNum(p.familiarity).toFixed(2)} />
+            <Kv label="Trust"   value={safeNum(p.trust).toFixed(2)} />
+            <Kv label="Sent"    value={safeNum(p.sentiment).toFixed(2)} />
+            <Kv label="Grat"    value={safeNum(p.gratitude).toFixed(2)} />
+            <Kv label="Donated" value={`$${safeNum(p.donation_total).toFixed(0)}`} accent="#fbbf24" />
+            <Kv label="Interactions" value={String(p.interaction_count)} />
+          </div>
+
+          {loaded!.identities.length > 0 && (
+            <Section title="Identities" accent="#94a3b8">
+              <div className="space-y-0.5">
+                {loaded!.identities.map((i, idx) => (
+                  <div key={idx} className="text-[11px] text-text-muted font-mono break-all">
+                    <span className="text-text">{i.platform}</span> · {i.platform_user_id}
+                    {i.display_name && <span className="text-text-faint"> · {i.display_name}</span>}
+                    {i.verified && <span className="text-cyan-400"> ✓</span>}
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          <Section title={`Past comments (${loaded!.comments.length})`} accent="#38bdf8">
+            {loaded!.comments.length === 0 ? (
+              <div className="text-[11px] text-text-faint italic">配信コメント DB に履歴なし</div>
+            ) : (
+              <div className="flex flex-col gap-1 max-h-72 overflow-y-auto scrollbar-none">
+                {loaded!.comments.map((row, i) => (
+                  <div
+                    key={i}
+                    className={[
+                      "rounded-md px-2 py-1 text-[11px] border",
+                      row.is_superchat
+                        ? "bg-amber-500/10 border-amber-500/30"
+                        : "bg-white/[0.02] border-white/5",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-center gap-1.5 text-[9px] text-text-muted">
+                      <span className="rounded px-1 text-[9px] font-semibold"
+                        style={{ color: row.language === "ja" ? CHANNEL_COLOR.ja : CHANNEL_COLOR.en, background: `${row.language === "ja" ? CHANNEL_COLOR.ja : CHANNEL_COLOR.en}18` }}>
+                        {row.language.toUpperCase()}
+                      </span>
+                      {row.is_superchat && <span className="text-amber-300">★ {row.amount ?? ""}</span>}
+                      {row.title && <span className="truncate max-w-[200px]" title={row.title}>{row.title}</span>}
+                      <span className="ml-auto tabular-nums">{new Date(row.commented_at).toLocaleString()}</span>
+                    </div>
+                    <div className="text-text break-all">{row.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+        </>
+      )}
+    </div>
+  );
 }
 
 function DirectorDetail({
@@ -1491,6 +1682,8 @@ interface UiComment {
   isSuperchat: boolean;
   amount?: string | number;
   at: number;
+  authorChannelId?: string | null;
+  personId?: string | null;
 }
 
 function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiComment[] {
@@ -1516,6 +1709,8 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
         isSuperchat: m.is_superchat,
         amount: m.amount ?? undefined,
         at,
+        authorChannelId: m.author_channel_id ?? null,
+        personId: m.person_id ?? null,
       });
     }
     const latestDb = (c.monitor?.comments ?? [])[0]?.commented_at
@@ -1541,6 +1736,8 @@ function mergeComments(byChannel: Record<Channel, ChannelLive | null>): UiCommen
         isSuperchat: Boolean(p["isSuperchat"]),
         amount: p["amount"] as string | undefined,
         at,
+        authorChannelId: typeof p["authorChannelId"] === "string" ? p["authorChannelId"] : null,
+        personId: typeof p["personId"] === "string" ? p["personId"] : null,
       });
     }
   }

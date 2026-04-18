@@ -81,9 +81,19 @@ router.get("/levels", async (_req, res) => {
   } catch (err) { forwardError(res, err); }
 });
 
+router.get("/by-identity", async (req, res) => {
+  try {
+    const platform = typeof req.query.platform === "string" ? req.query.platform : "";
+    const uid = typeof req.query.uid === "string" ? req.query.uid : "";
+    const qs = new URLSearchParams({ platform, uid }).toString();
+    res.json(await yunaApi(`/api/admin/persons/by-identity?${qs}`));
+  } catch (err) { forwardError(res, err); }
+});
+
 router.get("/:id", async (req, res) => {
-  // Avoid swallowing /search and /levels (handled above).
-  if (req.params.id === "search" || req.params.id === "levels") {
+  // Avoid swallowing /search, /levels, /by-identity (handled above).
+  const reserved = new Set(["search", "levels", "by-identity"]);
+  if (reserved.has(req.params.id)) {
     return res.status(404).json({ error: "Not found" });
   }
   try {
