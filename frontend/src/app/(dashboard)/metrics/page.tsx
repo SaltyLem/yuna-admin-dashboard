@@ -212,48 +212,51 @@ export default function MetricsPage() {
         </div>
       </header>
 
-      {/* Row 1: 6 Stat panels */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 shrink-0">
-        <StatPanel label="CPU"       value={cpuNow}      unit="%" color={threshold(cpuNow)}   fixed={1}
-                   kind="cpu"    metric="usage_pct" subject={null} range={range} />
-        <StatPanel label="Memory"    value={memPct}      unit="%" color={threshold(memPct)}   fixed={1}
-                   sub={memUsed != null && memTot != null ? `${(memUsed/1024).toFixed(1)} / ${(memTot/1024).toFixed(1)} GB` : undefined}
-                   kind="memory" metric="pct" subject={null} range={range} />
-        <StatPanel label="GPU"       value={gpu0Util}    unit="%" color={threshold(gpu0Util)} fixed={1} sub="RTX 3080 Ti"
-                   kind="gpu" metric="usage_pct" subject="0" range={range} />
-        <StatPanel label="VRAM"      value={gpu0Vram}    unit="%" color={threshold(gpu0Vram)} fixed={1}
-                   sub={gpu0VramUsed != null && gpu0VramTot != null ? `${(gpu0VramUsed/1024).toFixed(1)} / ${(gpu0VramTot/1024).toFixed(1)} GB` : undefined}
-                   kind="gpu" metric="vram_pct" subject="0" range={range} />
-        <StatPanel label="GPU Temp"  value={gpu0Temp}    unit="°C" color={tempColor(gpu0Temp)} fixed={0}
-                   kind="gpu" metric="temp_c" subject="0" range={range} />
-        <StatPanel label="GPU Power" value={gpu0Power}   unit="W" color={powerColor(gpu0Power)} fixed={0}
-                   kind="gpu" metric="power_w" subject="0" range={range} />
+      {/* Top: 2x3 Stat grid on the left + other panels stacked on the right */}
+      <div className="grid grid-cols-12 gap-3">
+        <div className="col-span-12 xl:col-span-5">
+          <div className="grid grid-cols-2 grid-rows-3 gap-3 auto-rows-fr">
+            <StatPanel label="CPU"       value={cpuNow}      unit="%" color={threshold(cpuNow)}   fixed={1}
+                       kind="cpu"    metric="usage_pct" subject={null} range={range} />
+            <StatPanel label="Memory"    value={memPct}      unit="%" color={threshold(memPct)}   fixed={1}
+                       sub={memUsed != null && memTot != null ? `${(memUsed/1024).toFixed(1)} / ${(memTot/1024).toFixed(1)} GB` : undefined}
+                       kind="memory" metric="pct" subject={null} range={range} />
+            <StatPanel label="GPU"       value={gpu0Util}    unit="%" color={threshold(gpu0Util)} fixed={1} sub="RTX 3080 Ti"
+                       kind="gpu" metric="usage_pct" subject="0" range={range} />
+            <StatPanel label="VRAM"      value={gpu0Vram}    unit="%" color={threshold(gpu0Vram)} fixed={1}
+                       sub={gpu0VramUsed != null && gpu0VramTot != null ? `${(gpu0VramUsed/1024).toFixed(1)} / ${(gpu0VramTot/1024).toFixed(1)} GB` : undefined}
+                       kind="gpu" metric="vram_pct" subject="0" range={range} />
+            <StatPanel label="GPU Temp"  value={gpu0Temp}    unit="°C" color={tempColor(gpu0Temp)} fixed={0}
+                       kind="gpu" metric="temp_c" subject="0" range={range} />
+            <StatPanel label="GPU Power" value={gpu0Power}   unit="W" color={powerColor(gpu0Power)} fixed={0}
+                       kind="gpu" metric="power_w" subject="0" range={range} />
+          </div>
+        </div>
+
+        <div className="col-span-12 xl:col-span-7 flex flex-col gap-3">
+          <div className="grid grid-cols-3 gap-3">
+            <GaugeWithStats title="CPU"    value={cpuNow}  unit="%" color={threshold(cpuNow)}
+                            kind="cpu"    metric="usage_pct" subject={null} range={range} />
+            <GaugeWithStats title="Memory" value={memPct}  unit="%" color={threshold(memPct)}
+                            sub={memUsed != null && memTot != null ? `${(memUsed/1024).toFixed(1)} / ${(memTot/1024).toFixed(1)} GB` : undefined}
+                            kind="memory" metric="pct" subject={null} range={range} />
+            <GaugeWithStats title="GPU"    value={gpu0Util} unit="%" color={threshold(gpu0Util)}
+                            sub={gpu0Temp != null ? `${Math.round(gpu0Temp)}°C · ${gpu0Power ? Math.round(gpu0Power) : "?"} W` : undefined}
+                            kind="gpu" metric="usage_pct" subject="0" range={range} />
+          </div>
+
+          <UtilizationCard range={range} cpuNow={cpuNow} gpuNow={gpu0Util} memNow={memPct} />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            <ChartWithStats title="GPU Temp" accent="#fb7185" unit="°C"
+                            kind="gpu" metric="temp_c" subject="0" range={range} colorFn={tempColor} thresholdLines={[60, 75]} />
+            <ChartWithStats title="GPU Power" accent="#fbbf24" unit="W"
+                            kind="gpu" metric="power_w" subject="0" range={range} colorFn={powerColor} thresholdLines={[200, 300]} />
+          </div>
+        </div>
       </div>
 
-      {/* Row 2: Radial gauges */}
-      <div className="grid grid-cols-3 gap-3 shrink-0">
-        <GaugeWithStats title="CPU"    value={cpuNow}  unit="%" color={threshold(cpuNow)}
-                        kind="cpu"    metric="usage_pct" subject={null} range={range} />
-        <GaugeWithStats title="Memory" value={memPct}  unit="%" color={threshold(memPct)}
-                        sub={memUsed != null && memTot != null ? `${(memUsed/1024).toFixed(1)} / ${(memTot/1024).toFixed(1)} GB` : undefined}
-                        kind="memory" metric="pct" subject={null} range={range} />
-        <GaugeWithStats title="GPU"    value={gpu0Util} unit="%" color={threshold(gpu0Util)}
-                        sub={gpu0Temp != null ? `${Math.round(gpu0Temp)}°C · ${gpu0Power ? Math.round(gpu0Power) : "?"} W` : undefined}
-                        kind="gpu" metric="usage_pct" subject="0" range={range} />
-      </div>
-
-      {/* Row 3: Utilization overlay */}
-      <UtilizationCard range={range} cpuNow={cpuNow} gpuNow={gpu0Util} memNow={memPct} />
-
-      {/* Row 4: Temp / Power with side stats */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-        <ChartWithStats title="GPU Temp" accent="#fb7185" unit="°C"
-                        kind="gpu" metric="temp_c" subject="0" range={range} colorFn={tempColor} thresholdLines={[60, 75]} />
-        <ChartWithStats title="GPU Power" accent="#fbbf24" unit="W"
-                        kind="gpu" metric="power_w" subject="0" range={range} colorFn={powerColor} thresholdLines={[200, 300]} />
-      </div>
-
-      {/* Row 5: Containers */}
+      {/* Containers (full width) */}
       <Panel title="Docker Containers" accent="#f472b6"
              right={containers ? `${containers.length} running` : undefined}>
         <ContainerTable rows={containers} />
