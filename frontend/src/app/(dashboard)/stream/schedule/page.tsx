@@ -240,8 +240,30 @@ interface ScheduleFormProps {
   onDeleted: () => void;
 }
 
+/** info:morning は 2 時間枠固定 (config/cognition 都合)。editor もその前提で振る舞う。 */
+const MORNING_PROGRAM = "info:morning";
+const MORNING_DURATION_MIN = 120;
+const MIN_MORNING_DURATION_MIN = 60;
+
+function addMinutes(hhmm: string, deltaMin: number): string {
+  const total = parseTime(hhmm) + deltaMin;
+  const wrapped = ((total % 1440) + 1440) % 1440;
+  const h = Math.floor(wrapped / 60);
+  const m = wrapped % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: ScheduleFormProps) {
-  const [form, setForm] = useState<ScheduleFormValues>(initial);
+  const [form, setForm] = useState<ScheduleFormValues>(() => {
+    // info:morning は常に start+2h を end にそろえる。
+    if (initial.program === MORNING_PROGRAM) {
+      return { ...initial, endTime: addMinutes(initial.startTime, MORNING_DURATION_MIN) };
+    }
+    return initial;
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  const isMorning = form.program === MORNING_PROGRAM;
 
   const toggleDay = (day: number) => {
     setForm((f) => ({
@@ -252,14 +274,41 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
     }));
   };
 
+  const handleStartChange = (v: string) => {
+    setForm((f) =>
+      f.program === MORNING_PROGRAM
+        ? { ...f, startTime: v, endTime: addMinutes(v, MORNING_DURATION_MIN) }
+        : { ...f, startTime: v },
+    );
+  };
+
+  const handleProgramChange = (next: string) => {
+    setForm((f) =>
+      next === MORNING_PROGRAM
+        ? { ...f, program: next, endTime: addMinutes(f.startTime, MORNING_DURATION_MIN) }
+        : { ...f, program: next },
+    );
+  };
+
   const handleSave = async () => {
+    setError(null);
+    const startMinutes = parseTime(form.startTime);
+    const endMinutes = parseTime(form.endTime);
+    const duration = endMinutes - startMinutes;
+
+    // info:morning バリデーション: 1h 未満は不可 (通常は 2h 固定)
+    if (form.program === MORNING_PROGRAM && duration < MIN_MORNING_DURATION_MIN) {
+      setError(`${MORNING_PROGRAM} は最低 1 時間必要です (現在 ${duration} 分)`);
+      return;
+    }
+
     const body = {
       channel: form.channel,
       repeatType: form.repeatType,
       repeatDays: form.repeatType === "weekly" ? form.repeatDays : [],
       date: form.repeatType === "once" ? form.date : null,
-      startMinutes: parseTime(form.startTime),
-      endMinutes: parseTime(form.endTime),
+      startMinutes,
+      endMinutes,
       program: form.program,
       label: form.label,
       title: form.title,
@@ -270,7 +319,8 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
       } else {
         await apiFetch("/schedules", { method: "POST", body: JSON.stringify(body) });
       }
-    } catch {
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
       return;
     }
     onSaved();
@@ -336,17 +386,23 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start">
-          <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })}
+          <input type="time" value={form.startTime} onChange={(e) => handleStartChange(e.target.value)}
             className={FIELD_CLASS} />
         </Field>
-        <Field label="End">
-          <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })}
-            className={FIELD_CLASS} />
+        <Field label={isMorning ? "End (start + 2h, 固定)" : "End"}>
+          <input
+            type="time"
+            value={form.endTime}
+            onChange={(e) => setForm({ ...form, endTime: e.target.value })}
+            disabled={isMorning}
+            title={isMorning ? `${MORNING_PROGRAM} は 2 時間枠固定` : undefined}
+            className={`${FIELD_CLASS} ${isMorning ? "opacity-60 cursor-not-allowed" : ""}`}
+          />
         </Field>
       </div>
 
       <Field label="Program">
-        <select value={form.program} onChange={(e) => setForm({ ...form, program: e.target.value })}
+        <select value={form.program} onChange={(e) => handleProgramChange(e.target.value)}
           className={FIELD_CLASS}>
           {programs.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
         </select>
@@ -361,6 +417,12 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
         <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
           placeholder="e.g. 夜のまったり雑談" className={FIELD_CLASS} />
       </Field>
+
+      {error && (
+        <div className="text-xs text-[color:var(--color-danger)] px-2 py-1.5 rounded bg-[color:var(--color-danger)]/10 border border-[color:var(--color-danger)]/30">
+          {error}
+        </div>
+      )}
 
       <div className="flex items-center gap-3 pt-2">
         {schedule && (
