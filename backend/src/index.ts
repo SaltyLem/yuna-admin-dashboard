@@ -88,24 +88,162 @@ app.post("/auth/verify", requireAuth, (_req: Request, res: Response) => {
 
 // ── 以降のルートは認証必須 ──
 // 認証不要（内部ネットワークから scheduler が取得）
+//
+// 指定 date (= 各 schedule の timezone における暦日) に有効な slot を
+// materialize して返す。once は絶対 TIMESTAMPTZ をそのまま、daily/weekly は
+// date + start_time/end_time を timezone で合成して starts_at/ends_at を導出。
+// end_time <= start_time は overnight とみなし、ends_at を翌日へ繰り上げる。
+//
+// 同じ channel + date に once slot が存在する場合は、その date の recurring を
+// 落として once を優先する (旧挙動と同じ)。
 app.get("/schedules/active", async (req, res) => {
   const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    res.status(400).json({ error: "date=YYYY-MM-DD required" });
+    return;
+  }
   const result = await query(
-    `SELECT s.*, p.overlay_path FROM stream_schedules s
+    `SELECT s.*, p.overlay_path
+     FROM stream_schedules s
      LEFT JOIN stream_programs p ON p.name = s.program
      WHERE s.enabled = true
-       AND (s.ends_on IS NULL OR s.ends_on >= $1)
-       AND (s.date = $1 OR (s.date IS NULL AND NOT EXISTS (
-         SELECT 1 FROM stream_schedules s2
-         WHERE s2.channel = s.channel
-           AND s2.date = $1
-           AND s2.enabled = true
-       )))
-     ORDER BY s.channel, s.start_minutes`,
+       AND (s.ends_on IS NULL OR s.ends_on >= $1)`,
     [date],
   );
-  res.json({ schedules: result.rows });
+  res.json({ schedules: materializeSchedules(result.rows, date) });
 });
+
+// date を timezone の暦日として扱って starts_at/ends_at を導出する。
+// Node の Intl は "timezone offset in minutes at a given instant" を直接返さない
+// ので、"その timezone での同じ wall clock" を一旦 UTC と仮定してから offset で
+// 補正するトリック (Intl で tz の hour/min/sec を抽出 → UTC 想定との差分を取る).
+function tzOffsetMs(utcInstant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).formatToParts(utcInstant);
+  const get = (t: string): number => parseInt(parts.find((p) => p.type === t)?.value ?? "0", 10);
+  let hour = get("hour");
+  if (hour === 24) hour = 0;
+  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second"));
+  return asUtc - utcInstant.getTime();
+}
+
+function composeInTz(dateStr: string, timeStr: string, timeZone: string): Date {
+  // dateStr: "YYYY-MM-DD", timeStr: "HH:MM" or "HH:MM:SS"
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  const [h, mi, s] = timeStr.split(":").map(Number);
+  // 目標 wall clock を UTC と仮定した instant
+  const naiveUtc = Date.UTC(y ?? 0, (mo ?? 1) - 1, d ?? 1, h ?? 0, mi ?? 0, s ?? 0);
+  // 同 instant を timeZone で表示したときの offset (ms) を使って補正
+  const offset = tzOffsetMs(new Date(naiveUtc), timeZone);
+  return new Date(naiveUtc - offset);
+}
+
+function addDaysISO(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const t = new Date(Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1));
+  t.setUTCDate(t.getUTCDate() + days);
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(t.getUTCDate()).padStart(2, "0")}`;
+}
+
+function dateInTz(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone }).format(instant);
+}
+
+function dowInTz(dateStr: string, timeZone: string): number {
+  // dateStr は timeZone における暦日。該当日の 12:00 local を作って getUTCDay は使えない
+  // ので、Intl で weekday short を引いて番号に変換。
+  const instant = composeInTz(dateStr, "12:00:00", timeZone);
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone, weekday: "short",
+  }).format(instant);
+  return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[wd] ?? 0;
+}
+
+interface RawScheduleRow {
+  id: number;
+  channel: string;
+  repeat_type: "once" | "daily" | "weekly";
+  repeat_days: number[] | null;
+  starts_at: Date | string | null;
+  ends_at: Date | string | null;
+  start_time: string | null;   // "HH:MM:SS"
+  end_time: string | null;
+  timezone: string;
+  ends_on: string | null;
+  program: string;
+  label: string;
+  title: string;
+  enabled: boolean;
+  overlay_path?: string | null;
+  [k: string]: unknown;
+}
+
+interface MaterializedSlot {
+  id: number;
+  channel: string;
+  repeat_type: "once" | "daily" | "weekly";
+  starts_at: string;  // ISO
+  ends_at: string;    // ISO
+  program: string;
+  label: string;
+  title: string;
+  enabled: boolean;
+  overlay_path: string | null;
+  timezone: string;
+}
+
+function materializeSchedules(rows: RawScheduleRow[], date: string): MaterializedSlot[] {
+  const onceHits = new Set<string>(); // `${channel}` that has a once slot on this date.
+  const onceSlots: MaterializedSlot[] = [];
+  const recurringSlots: MaterializedSlot[] = [];
+
+  for (const r of rows) {
+    if (r.repeat_type === "once") {
+      if (!r.starts_at || !r.ends_at) continue;
+      const startsIso = new Date(r.starts_at).toISOString();
+      const endsIso = new Date(r.ends_at).toISOString();
+      // once は starts_at のローカル暦日 (その行の timezone 基準) が date と一致するときのみ採用
+      if (dateInTz(new Date(r.starts_at), r.timezone) !== date) continue;
+      onceHits.add(r.channel);
+      onceSlots.push({
+        id: r.id, channel: r.channel, repeat_type: "once",
+        starts_at: startsIso, ends_at: endsIso,
+        program: r.program, label: r.label, title: r.title, enabled: r.enabled,
+        overlay_path: (r.overlay_path as string | null) ?? null,
+        timezone: r.timezone,
+      });
+      continue;
+    }
+
+    // daily / weekly
+    if (!r.start_time || !r.end_time) continue;
+    if (r.repeat_type === "weekly") {
+      const dow = dowInTz(date, r.timezone);
+      if (!(r.repeat_days ?? []).includes(dow)) continue;
+    }
+    const startsAt = composeInTz(date, r.start_time, r.timezone);
+    // end_time <= start_time → overnight (翌日へ)
+    const endDate = r.end_time <= r.start_time ? addDaysISO(date, 1) : date;
+    const endsAt = composeInTz(endDate, r.end_time, r.timezone);
+    recurringSlots.push({
+      id: r.id, channel: r.channel, repeat_type: r.repeat_type,
+      starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(),
+      program: r.program, label: r.label, title: r.title, enabled: r.enabled,
+      overlay_path: (r.overlay_path as string | null) ?? null,
+      timezone: r.timezone,
+    });
+  }
+
+  // 同 channel + date に once があったら recurring を drop
+  const filteredRecurring = recurringSlots.filter((s) => !onceHits.has(s.channel));
+  return [...onceSlots, ...filteredRecurring].sort((a, b) =>
+    a.channel < b.channel ? -1 : a.channel > b.channel ? 1 : a.starts_at < b.starts_at ? -1 : 1,
+  );
+}
 // Docker logs: SSE で EventSource を使うため、Authorization ヘッダの代わりに
 // ?token= も受け付ける専用 middleware で守る。`app.use(requireAuth)` の前に mount。
 function requireAuthHeaderOrQuery(req: Request, res: Response, next: NextFunction): void {

@@ -6,7 +6,7 @@ import { modal } from "@/components/modal";
 import { WeekView } from "@/components/week-view";
 import {
   type Schedule, type Program, DAYS,
-  fmtTime, parseTime, fmtDate, matchesDate, slotColor,
+  fmtTime, parseTime, fmtDate, slotColor, slotInstanceForDate,
 } from "@/components/schedule-utils";
 
 type ViewMode = "month" | "week";
@@ -35,13 +35,17 @@ interface ScheduleFormValues {
   channel: "ja" | "en";
   repeatType: "once" | "daily" | "weekly";
   repeatDays: number[];
-  date: string | null;
-  startTime: string;
-  endTime: string;
+  date: string | null;     // once 用 (YYYY-MM-DD, timezone local)
+  startTime: string;       // "HH:MM"
+  endTime: string;         // "HH:MM"
+  timezone: string;
   program: string;
   label: string;
   title: string;
 }
+
+const DEFAULT_TZ = "Asia/Tokyo";
+const TIMEZONE_OPTIONS = ["Asia/Tokyo", "America/New_York", "UTC"];
 
 function defaultForm(programs: Program[], date: string | null): ScheduleFormValues {
   return {
@@ -51,20 +55,75 @@ function defaultForm(programs: Program[], date: string | null): ScheduleFormValu
     date,
     startTime: "19:00",
     endTime: "22:00",
+    timezone: DEFAULT_TZ,
     program: programs[0]?.name ?? "chat:golden",
     label: "",
     title: "",
   };
 }
 
+/** ISO TIMESTAMPTZ → 指定 tz の "YYYY-MM-DD" / "HH:MM" を抽出。 */
+function splitInTz(iso: string, tz: string): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(iso));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  let hh = get("hour"); if (hh === "24") hh = "00";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    time: `${hh}:${get("minute")}`,
+  };
+}
+
+/** "YYYY-MM-DD" + "HH:MM" を timezone 上の wall clock として ISO 化 (offset 補正)。 */
+function composeIso(dateStr: string, timeStr: string, tz: string): string {
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  const [h, mi] = timeStr.split(":").map(Number);
+  const naive = Date.UTC(y ?? 0, (mo ?? 1) - 1, d ?? 1, h ?? 0, mi ?? 0, 0);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(new Date(naive));
+  const get = (t: string) => parseInt(parts.find((p) => p.type === t)?.value ?? "0", 10);
+  let hour = get("hour"); if (hour === 24) hour = 0;
+  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second"));
+  const offset = asUtc - naive;
+  return new Date(naive - offset).toISOString();
+}
+
+function addDayISO(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return fmtDate(new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
 function formFromSchedule(s: Schedule): ScheduleFormValues {
+  const tz = s.timezone || DEFAULT_TZ;
+  if (s.repeat_type === "once" && s.starts_at && s.ends_at) {
+    const start = splitInTz(s.starts_at, tz);
+    const end = splitInTz(s.ends_at, tz);
+    return {
+      channel: s.channel as "ja" | "en",
+      repeatType: "once",
+      repeatDays: [],
+      date: start.date,
+      startTime: start.time,
+      endTime: end.time,
+      timezone: tz,
+      program: s.program,
+      label: s.label,
+      title: s.title,
+    };
+  }
   return {
     channel: s.channel as "ja" | "en",
     repeatType: s.repeat_type,
     repeatDays: s.repeat_days ?? [],
-    date: s.date ? s.date.slice(0, 10) : null,
-    startTime: fmtTime(s.start_minutes),
-    endTime: fmtTime(s.end_minutes),
+    date: null,
+    startTime: (s.start_time ?? "19:00").slice(0, 5),
+    endTime: (s.end_time ?? "22:00").slice(0, 5),
+    timezone: tz,
     program: s.program,
     label: s.label,
     title: s.title,
@@ -116,7 +175,7 @@ export default function SchedulePage() {
         ...defaultForm(programs, date),
         repeatType: "once",
         startTime: fmtTime(startMinutes),
-        endTime: fmtTime(endMinutes),
+        endTime: fmtTime(endMinutes % 1440),
       },
       null,
     );
@@ -141,15 +200,18 @@ export default function SchedulePage() {
   weekEndDate.setDate(weekEndDate.getDate() + 6);
   const weekLabel = `${fmtDate(weekStart).slice(5)} - ${fmtDate(weekEndDate).slice(5)}`;
 
-  const renderSlot = (s: Schedule) => (
-    <div
-      key={s.id}
-      onClick={(e) => { e.stopPropagation(); openEdit(s); }}
-      className={`text-xs px-1 py-0.5 rounded truncate cursor-pointer transition hover:brightness-125 ${slotColor(s)}`}
-    >
-      {fmtTime(s.start_minutes)} {s.label || s.program}
-    </div>
-  );
+  const renderSlot = (s: Schedule, date: string) => {
+    const inst = slotInstanceForDate(s, date);
+    return (
+      <div
+        key={s.id}
+        onClick={(e) => { e.stopPropagation(); openEdit(s); }}
+        className={`text-xs px-1 py-0.5 rounded truncate cursor-pointer transition hover:brightness-125 ${slotColor(s)}`}
+      >
+        {inst ? fmtTime(inst.startMin) : "??:??"} {s.label || s.program}
+      </div>
+    );
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -212,13 +274,13 @@ export default function SchedulePage() {
               {Array.from({ length: days }).map((_, i) => {
                 const day = i + 1;
                 const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                const daySchedules = schedules.filter((s) => matchesDate(s, date));
+                const daySchedules = schedules.filter((s) => slotInstanceForDate(s, date) !== null);
                 const isToday = date === today;
                 return (
                   <div key={day} onClick={() => openAdd(date)}
                     className={`min-h-24 border border-border p-1 cursor-pointer transition hover:bg-panel/50 ${isToday ? "border-border-strong bg-panel/30" : ""}`}>
                     <div className={`text-xs mb-1 ${isToday ? "text-text font-bold" : "text-text-muted"}`}>{day}</div>
-                    <div className="space-y-0.5">{daySchedules.map(renderSlot)}</div>
+                    <div className="space-y-0.5">{daySchedules.map((s) => renderSlot(s, date))}</div>
                   </div>
                 );
               })}
@@ -255,7 +317,6 @@ function addMinutes(hhmm: string, deltaMin: number): string {
 
 function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: ScheduleFormProps) {
   const [form, setForm] = useState<ScheduleFormValues>(() => {
-    // info:morning は常に start+2h を end にそろえる。
     if (initial.program === MORNING_PROGRAM) {
       return { ...initial, endTime: addMinutes(initial.startTime, MORNING_DURATION_MIN) };
     }
@@ -292,32 +353,52 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
 
   const handleSave = async () => {
     setError(null);
-    const startMinutes = parseTime(form.startTime);
-    const endMinutes = parseTime(form.endTime);
-    // 日跨ぎ対応: end < start なら翌日扱いで +24h。end == start は 0 分扱い (枠なし)。
-    const duration = endMinutes > startMinutes
-      ? endMinutes - startMinutes
-      : endMinutes < startMinutes
-        ? endMinutes + 1440 - startMinutes
+    const startMin = parseTime(form.startTime);
+    const endMin = parseTime(form.endTime);
+    const duration = endMin > startMin
+      ? endMin - startMin
+      : endMin < startMin
+        ? endMin + 1440 - startMin
         : 0;
 
-    // info:morning バリデーション: 1h 未満は不可 (通常は 2h 固定)
     if (form.program === MORNING_PROGRAM && duration < MIN_MORNING_DURATION_MIN) {
       setError(`${MORNING_PROGRAM} は最低 1 時間必要です (現在 ${duration} 分)`);
       return;
     }
 
-    const body = {
-      channel: form.channel,
-      repeatType: form.repeatType,
-      repeatDays: form.repeatType === "weekly" ? form.repeatDays : [],
-      date: form.repeatType === "once" ? form.date : null,
-      startMinutes,
-      endMinutes,
-      program: form.program,
-      label: form.label,
-      title: form.title,
-    };
+    let body: Record<string, unknown>;
+    if (form.repeatType === "once") {
+      if (!form.date) {
+        setError("once schedule requires date");
+        return;
+      }
+      const startsAt = composeIso(form.date, form.startTime, form.timezone);
+      // overnight 対応: end < start なら翌日扱い
+      const endDate = endMin <= startMin ? addDayISO(form.date) : form.date;
+      const endsAt = composeIso(endDate, form.endTime, form.timezone);
+      body = {
+        channel: form.channel,
+        repeatType: "once",
+        startsAt,
+        endsAt,
+        timezone: form.timezone,
+        program: form.program,
+        label: form.label,
+        title: form.title,
+      };
+    } else {
+      body = {
+        channel: form.channel,
+        repeatType: form.repeatType,
+        repeatDays: form.repeatType === "weekly" ? form.repeatDays : [],
+        startTime: form.startTime,
+        endTime: form.endTime,
+        timezone: form.timezone,
+        program: form.program,
+        label: form.label,
+        title: form.title,
+      };
+    }
     try {
       if (schedule) {
         await apiFetch(`/schedules/${schedule.id}`, { method: "PUT", body: JSON.stringify(body) });
@@ -389,7 +470,7 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
         </Field>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Field label="Start">
           <input type="time" value={form.startTime} onChange={(e) => handleStartChange(e.target.value)}
             className={FIELD_CLASS} />
@@ -403,6 +484,12 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
             title={isMorning ? `${MORNING_PROGRAM} は 2 時間枠固定` : undefined}
             className={`${FIELD_CLASS} ${isMorning ? "opacity-60 cursor-not-allowed" : ""}`}
           />
+        </Field>
+        <Field label="Timezone">
+          <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+            className={FIELD_CLASS}>
+            {TIMEZONE_OPTIONS.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+          </select>
         </Field>
       </div>
 

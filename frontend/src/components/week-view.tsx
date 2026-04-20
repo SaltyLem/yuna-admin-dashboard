@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
 
-import { fmtTime, fmtDate, matchesDate, DAYS, type Schedule } from "./schedule-utils";
+import { fmtTime, fmtDate, slotInstanceForDate, DAYS, type Schedule } from "./schedule-utils";
 
 interface WeekViewProps {
   weekStart: Date;
@@ -45,11 +45,11 @@ function addDays(dateStr: string, delta: number): string {
 
 /**
  * 週表示の 7 日分について、各スケジュールを最大 2 つのセグメントに展開する。
- * end_minutes <= start_minutes は日跨ぎとみなし、翌日セルにも carry 片を置く。
+ * slotInstanceForDate(s, base) が overnight (endMin > 1440) を返したら base 当日と
+ * 翌日のセルに分割して carry 片を置く。
  */
 function buildSegments(weekDates: string[], schedules: Schedule[]): Segment[] {
   const out: Segment[] = [];
-  // 前日が週の範囲外でも carry を拾うため ±1 日を候補に含める
   const candidates = new Set<string>();
   for (const d of weekDates) {
     candidates.add(d);
@@ -59,21 +59,21 @@ function buildSegments(weekDates: string[], schedules: Schedule[]): Segment[] {
 
   for (const s of schedules) {
     for (const base of candidates) {
-      if (!matchesDate(s, base)) continue;
-      const start = s.start_minutes;
-      const end = s.end_minutes;
-      const crossesMidnight = end <= start;
+      const inst = slotInstanceForDate(s, base);
+      if (!inst) continue;
+      const { startMin, endMin, crossesMidnight } = inst;
       if (crossesMidnight) {
         if (weekSet.has(base)) {
-          out.push({ schedule: s, date: base, startMin: start, endMin: 1440, isCarry: false });
+          out.push({ schedule: s, date: base, startMin, endMin: 1440, isCarry: false });
         }
         const next = addDays(base, 1);
-        if (weekSet.has(next) && end > 0) {
-          out.push({ schedule: s, date: next, startMin: 0, endMin: end, isCarry: true });
+        const carryEnd = endMin - 1440;
+        if (weekSet.has(next) && carryEnd > 0) {
+          out.push({ schedule: s, date: next, startMin: 0, endMin: carryEnd, isCarry: true });
         }
       } else {
         if (weekSet.has(base)) {
-          out.push({ schedule: s, date: base, startMin: start, endMin: end, isCarry: false });
+          out.push({ schedule: s, date: base, startMin, endMin, isCarry: false });
         }
       }
     }
@@ -212,12 +212,16 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
                       const s = seg.schedule;
                       const durationMinutes = seg.endMin - seg.startMin;
                       const topOffset = (seg.startMin % 60) / 60;
-                      const crosses = s.end_minutes <= s.start_minutes;
+                      // base-day instance を使って overnight 表示判定 + 表示時刻を出す
+                      const inst = slotInstanceForDate(s, seg.date);
+                      const startLabel = inst ? fmtTime(inst.startMin) : "??:??";
+                      const endLabel = inst ? fmtTime(inst.endMin % 1440) : "??:??";
+                      const crosses = inst?.crossesMidnight ?? false;
                       const displayLabel = seg.isCarry
-                        ? `…${fmtTime(s.end_minutes)} ${s.label}`
+                        ? `…${endLabel} ${s.label}`
                         : crosses
-                          ? `${fmtTime(s.start_minutes)} ${s.label} →`
-                          : `${fmtTime(s.start_minutes)} ${s.label}`;
+                          ? `${startLabel} ${s.label} →`
+                          : `${startLabel} ${s.label}`;
                       return (
                         <div
                           key={`${s.id}-${seg.isCarry ? "c" : "m"}`}
@@ -231,7 +235,7 @@ export function WeekView({ weekStart, schedules, onClickSlot, onClickDate, onDra
                             right: isLeft ? "50%" : "1px",
                             zIndex: 10,
                           }}
-                          title={`[${ch.toUpperCase()}] ${fmtTime(s.start_minutes)}-${fmtTime(s.end_minutes)}${crosses ? " (日跨ぎ)" : ""} ${s.label}`}
+                          title={`[${ch.toUpperCase()}] ${startLabel}-${endLabel}${crosses ? " (日跨ぎ)" : ""} ${s.label}`}
                         >
                           {displayLabel}
                         </div>
