@@ -294,7 +294,12 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
     setError(null);
     const startMinutes = parseTime(form.startTime);
     const endMinutes = parseTime(form.endTime);
-    const duration = endMinutes - startMinutes;
+    // 日跨ぎ対応: end < start なら翌日扱いで +24h。end == start は 0 分扱い (枠なし)。
+    const duration = endMinutes > startMinutes
+      ? endMinutes - startMinutes
+      : endMinutes < startMinutes
+        ? endMinutes + 1440 - startMinutes
+        : 0;
 
     // info:morning バリデーション: 1h 未満は不可 (通常は 2h 固定)
     if (form.program === MORNING_PROGRAM && duration < MIN_MORNING_DURATION_MIN) {
