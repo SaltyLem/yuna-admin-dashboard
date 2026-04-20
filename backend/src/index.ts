@@ -113,6 +113,38 @@ app.get("/schedules/active", async (req, res) => {
   res.json({ schedules: materializeSchedules(result.rows as unknown as RawScheduleRow[], date) });
 });
 
+// DEV-only: 今すぐ (+1min) 始まる info:morning (2h) once schedule を作る。
+// yuna-stream /dev/schedule-morning-now 経由で overlay DevPanel から呼ばれる。
+// ENABLE_DEV_INJECT=false で無効化できる。
+app.post("/dev/schedule-morning-now", express.json(), async (req: Request, res: Response) => {
+  if (process.env["ENABLE_DEV_INJECT"] === "false") {
+    res.status(403).json({ error: "dev inject disabled" });
+    return;
+  }
+  const { channel } = req.body as { channel?: "ja" | "en" };
+  if (channel !== "ja" && channel !== "en") {
+    res.status(400).json({ error: "channel=ja|en required" });
+    return;
+  }
+  const tz = "Asia/Tokyo";
+  const now = Date.now();
+  const startsAt = new Date(now + 60_000);                         // +1min
+  const endsAt   = new Date(now + 60_000 + 2 * 60 * 60_000);       // +2h1min
+  try {
+    const result = await query(
+      `INSERT INTO stream_schedules
+         (channel, repeat_type, repeat_days, starts_at, ends_at, timezone, program, label, title)
+       VALUES ($1, 'once', '{}', $2::timestamptz, $3::timestamptz, $4,
+               'info:morning', 'テスト朝ニュース', 'テスト配信 (DEV)')
+       RETURNING *`,
+      [channel, startsAt.toISOString(), endsAt.toISOString(), tz],
+    );
+    res.json({ ok: true, schedule: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // date を timezone の暦日として扱って starts_at/ends_at を導出する。
 // Node の Intl は "timezone offset in minutes at a given instant" を直接返さない
 // ので、"その timezone での同じ wall clock" を一旦 UTC と仮定してから offset で
