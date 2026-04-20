@@ -110,7 +110,7 @@ app.get("/schedules/active", async (req, res) => {
        AND (s.ends_on IS NULL OR s.ends_on >= $1)`,
     [date],
   );
-  res.json({ schedules: materializeSchedules(result.rows, date) });
+  res.json({ schedules: materializeSchedules(result.rows as unknown as RawScheduleRow[], date) });
 });
 
 // date を timezone の暦日として扱って starts_at/ends_at を導出する。
@@ -206,8 +206,13 @@ function materializeSchedules(rows: RawScheduleRow[], date: string): Materialize
       if (!r.starts_at || !r.ends_at) continue;
       const startsIso = new Date(r.starts_at).toISOString();
       const endsIso = new Date(r.ends_at).toISOString();
-      // once は starts_at のローカル暦日 (その行の timezone 基準) が date と一致するときのみ採用
-      if (dateInTz(new Date(r.starts_at), r.timezone) !== date) continue;
+      // once は [starts_at, ends_at) の live 区間が date の 00:00-24:00 local と
+      // 交差する日に出現させる (overnight slot 23:00→01:00 なら前日と当日の両方)。
+      const dayStart = composeInTz(date, "00:00:00", r.timezone).getTime();
+      const dayEnd = composeInTz(addDaysISO(date, 1), "00:00:00", r.timezone).getTime();
+      const startMs = new Date(r.starts_at).getTime();
+      const endMs = new Date(r.ends_at).getTime();
+      if (endMs <= dayStart || startMs >= dayEnd) continue;
       onceHits.add(r.channel);
       onceSlots.push({
         id: r.id, channel: r.channel, repeat_type: "once",
