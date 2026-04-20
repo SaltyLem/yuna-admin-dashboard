@@ -185,7 +185,7 @@ export default function SchedulePage() {
               </div>
               <button onClick={nextWeek} className="text-text-muted hover:text-text px-2 py-1">&gt;</button>
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
               <WeekView
                 weekStart={weekStart}
                 schedules={schedules}
@@ -202,7 +202,7 @@ export default function SchedulePage() {
               <h3 className="text-lg font-medium">{year}/{String(month + 1).padStart(2, "0")}</h3>
               <button onClick={nextMonth} className="text-text-muted hover:text-text px-2 py-1">&gt;</button>
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-7 gap-px">
+            <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none grid grid-cols-7 gap-px">
               {DAYS.map((d) => (
                 <div key={d} className="text-center text-xs text-text-muted py-2">{d}</div>
               ))}
