@@ -38,6 +38,12 @@ const app = express();
 const server = createServer(app);
 const PORT = parseInt(process.env["PORT"] ?? "4100", 10);
 const ADMIN_DASHBOARD_PASSWORD = process.env["ADMIN_DASHBOARD_PASSWORD"] ?? "admin";
+/**
+ * 内部サービス間認証用の長寿命 token. session token とは別系統で、
+ * Yuna container 等が固定の Bearer header で /schedules 等を叩くために使う.
+ * 未設定なら無効 (session token 必須に戻る).
+ */
+const ADMIN_SERVICE_TOKEN = process.env["ADMIN_SERVICE_TOKEN"] ?? "";
 const REDIS_STREAM_URL = process.env["REDIS_STREAM_URL"] ?? "redis://localhost:6381";
 
 // ── セッション管理（インメモリ） ──
@@ -56,11 +62,10 @@ function isValidToken(token: string | undefined): boolean {
 
 function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!isValidToken(token)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
+  // session token (人間 dashboard 用) または service token (内部 service 間) で通す.
+  if (isValidToken(token)) return next();
+  if (ADMIN_SERVICE_TOKEN && token === ADMIN_SERVICE_TOKEN) return next();
+  res.status(401).json({ error: "Unauthorized" });
 }
 
 app.use(cors());
