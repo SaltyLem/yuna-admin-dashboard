@@ -149,9 +149,12 @@ export default function YouTubeSlotPage(): React.JSX.Element {
   return (
     <div className="p-6 max-w-6xl mx-auto text-zinc-100">
       <h1 className="text-2xl font-bold mb-2">YouTube Slot Manager</h1>
-      <p className="text-sm text-zinc-400 mb-6">
+      <p className="text-sm text-zinc-400 mb-2">
         Each switch creates a new broadcast (titles/description from template) bound to the
         same reusable stream — broadcaster keeps pushing the same RTMP key forever.
+      </p>
+      <p className="text-sm mb-6">
+        <a href="/stream/youtube-slot/thumbnail" className="text-cyan-400 underline">→ Thumbnail Lab</a>
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

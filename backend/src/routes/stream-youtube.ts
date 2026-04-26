@@ -21,6 +21,7 @@ import { Router, type Request, type Response } from "express";
 import crypto from "crypto";
 import { Redis } from "ioredis";
 import { query } from "../db/client.js";
+import { generateSwitchBackground, pickSwitchExpression, renderThumbnailPng } from "./stream-youtube-thumbnail.js";
 
 const router = Router();
 
@@ -458,6 +459,31 @@ router.post("/switch", async (req: Request, res: Response) => {
          switched_at = NOW()`,
       [channel, broadcast.id, stream.stream_id, fullRtmpUrl, stream.ingest_address, stream.stream_key, broadcast.snippet.title],
     );
+
+    // サムネ: 5 種からランダム表情 + fal flux-pro で背景を当日 1 枚生成.
+    // 同日 ja/en は同じ背景を使う (キャッシュ). 背景失敗時は overlay の
+    // デフォルト動画背景を使う. best-effort.
+    try {
+      const expr = pickSwitchExpression();
+      const bgUrl = await generateSwitchBackground();
+      const png = await renderThumbnailPng({ channel, expr, tod: "day", bg: bgUrl ?? undefined });
+      const upRes = await fetch(
+        `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${broadcast.id}`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "image/png" },
+          body: new Uint8Array(png),
+        },
+      );
+      if (!upRes.ok) {
+        const errText = await upRes.text();
+        console.warn(`[switch:${channel}] thumbnail upload failed (${upRes.status}): ${errText.slice(0, 300)}`);
+      } else {
+        console.log(`[switch:${channel}] ✓ thumbnail uploaded (expr=${expr}, bg=${bgUrl ? "fal" : "default"})`);
+      }
+    } catch (err) {
+      console.warn(`[switch:${channel}] thumbnail render/upload error:`, err instanceof Error ? err.message : String(err));
+    }
 
     // Notify (broadcaster can ignore — RTMP key didn't change)
     await getRedisPub().publish(
