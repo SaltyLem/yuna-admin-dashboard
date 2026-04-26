@@ -101,12 +101,14 @@ async function getBrowser(): Promise<Browser> {
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
-        // alpine chromium は GPU 無効. swiftshader でソフトウェア WebGL を
-        // 有効化しないと Live2D (PIXI/WebGL) が真っ白になる.
-        "--use-gl=swiftshader",
+        // headless alpine chromium は GPU なし. PIXI/Live2D WebGL のために
+        // ANGLE (SwiftShader backend) でソフトウェアレンダ.
+        // 新版 Chromium で --use-gl=swiftshader は廃止され ANGLE 経由必須.
+        "--enable-unsafe-swiftshader",
+        "--use-angle=swiftshader",
         "--enable-webgl",
         "--ignore-gpu-blocklist",
-        "--enable-accelerated-2d-canvas",
+        "--disable-gpu-sandbox",
       ],
     }).catch((err) => {
       browserPromise = null;
@@ -149,6 +151,13 @@ function buildOverlayUrl(q: RenderQuery): string {
 export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
   const browser = await getBrowser();
   const page = await browser.newPage();
+  // page console / errors を admin-backend ログに出す (Live2D / WebGL 等の
+  // 失敗を見えるようにする)
+  page.on("console", (msg) => {
+    const t = msg.type();
+    if (t === "error" || t === "warning") console.log(`[thumb-page:${t}]`, msg.text());
+  });
+  page.on("pageerror", (err) => console.log("[thumb-page:pageerror]", err.message));
   try {
     await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
     const url = buildOverlayUrl(q);
