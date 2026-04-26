@@ -4,6 +4,7 @@ import schedulesRoutes from "./routes/schedules.js";
 import commentsRoutes from "./routes/comments.js";
 import personsRoutes from "./routes/persons.js";
 import streamRoutes from "./routes/stream.js";
+import streamYouTubeRoutes from "./routes/stream-youtube.js";
 import forexRoutes from "./routes/forex.js";
 import metricsRoutes, { ingestHandler as metricsIngestHandler } from "./routes/metrics.js";
 import { primeForex } from "./forex-client.js";
@@ -297,6 +298,10 @@ function requireIngestToken(req: Request, res: Response, next: NextFunction): vo
   next();
 }
 app.post("/metrics/ingest", requireIngestToken, metricsIngestHandler);
+
+// Stream backend ↔ admin-db credentials access. Uses STREAM_ADMIN_TOKEN
+// shared secret (not user JWT). Mount before `app.use(requireAuth)`.
+app.use("/stream/youtube", streamYouTubeRoutes);
 
 // Local mp4 / scenario preview — uses ?token= because <video> tags
 // cannot send Authorization headers.
