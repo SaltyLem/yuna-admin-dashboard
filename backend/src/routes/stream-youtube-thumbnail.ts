@@ -97,7 +97,17 @@ async function getBrowser(): Promise<Browser> {
     browserPromise = puppeteer.launch({
       headless: true,
       executablePath,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        // alpine chromium は GPU 無効. swiftshader でソフトウェア WebGL を
+        // 有効化しないと Live2D (PIXI/WebGL) が真っ白になる.
+        "--use-gl=swiftshader",
+        "--enable-webgl",
+        "--ignore-gpu-blocklist",
+        "--enable-accelerated-2d-canvas",
+      ],
     }).catch((err) => {
       browserPromise = null;
       throw err;
