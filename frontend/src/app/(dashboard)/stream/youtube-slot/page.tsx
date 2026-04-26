@@ -14,9 +14,18 @@ interface Status {
   channel_id: string | null;
   channel_title: string | null;
   linked_at: string | null;
+  reusable_stream_key: string | null;
+  reusable_rtmp_url: string | null;
   current_broadcast: string | null;
   current_rtmp: string | null;
   last_switch_at: string | null;
+}
+
+interface Template {
+  channel: Channel;
+  title_template: string;
+  description_template: string;
+  updated_at: string | null;
 }
 
 interface SwitchResult {
@@ -31,7 +40,9 @@ interface SwitchResult {
 
 export default function YouTubeSlotPage(): React.JSX.Element {
   const [statuses, setStatuses] = useState<Record<Channel, Status | null>>({ ja: null, en: null });
+  const [templates, setTemplates] = useState<Record<Channel, Template | null>>({ ja: null, en: null });
   const [busy, setBusy] = useState<Record<Channel, boolean>>({ ja: false, en: false });
+  const [savingTpl, setSavingTpl] = useState<Record<Channel, boolean>>({ ja: false, en: false });
   const [log, setLog] = useState<string[]>([]);
 
   const appendLog = useCallback((line: string) => {
@@ -47,15 +58,26 @@ export default function YouTubeSlotPage(): React.JSX.Element {
     }
   }, [appendLog]);
 
+  const loadTemplate = useCallback(async (channel: Channel) => {
+    try {
+      const data = await apiFetch<Template>(`/stream/youtube/template/${channel}`, { silent: true });
+      setTemplates((prev) => ({ ...prev, [channel]: data }));
+    } catch (err) {
+      appendLog(`[${channel}] template load error: ${String(err)}`);
+    }
+  }, [appendLog]);
+
   useEffect(() => {
     void loadStatus("ja");
     void loadStatus("en");
+    void loadTemplate("ja");
+    void loadTemplate("en");
     const t = setInterval(() => {
       void loadStatus("ja");
       void loadStatus("en");
     }, 30_000);
     return () => clearInterval(t);
-  }, [loadStatus]);
+  }, [loadStatus, loadTemplate]);
 
   const startOAuth = useCallback(async (channel: Channel) => {
     setBusy((prev) => ({ ...prev, [channel]: true }));
@@ -80,10 +102,9 @@ export default function YouTubeSlotPage(): React.JSX.Element {
   const switchSlot = useCallback(async (channel: Channel) => {
     setBusy((prev) => ({ ...prev, [channel]: true }));
     try {
-      const title = `YUNA ${channel.toUpperCase()} ${new Date().toLocaleDateString("ja-JP")}`;
       const data = await apiFetch<SwitchResult>(
         `/stream/youtube/switch`,
-        { method: "POST", body: JSON.stringify({ channel, title }) },
+        { method: "POST", body: JSON.stringify({ channel }) },
       );
       if (data.ok) {
         appendLog(`[${channel}] ✓ Switched to ${data.broadcast_id} (${data.watch_url})`);
@@ -98,12 +119,39 @@ export default function YouTubeSlotPage(): React.JSX.Element {
     }
   }, [appendLog, loadStatus]);
 
+  const saveTemplate = useCallback(async (channel: Channel) => {
+    const tpl = templates[channel];
+    if (!tpl) return;
+    setSavingTpl((prev) => ({ ...prev, [channel]: true }));
+    try {
+      await apiFetch(`/stream/youtube/template/${channel}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          title_template: tpl.title_template,
+          description_template: tpl.description_template,
+        }),
+      });
+      appendLog(`[${channel}] ✓ Template saved`);
+    } catch (err) {
+      appendLog(`[${channel}] template save error: ${String(err)}`);
+    } finally {
+      setSavingTpl((prev) => ({ ...prev, [channel]: false }));
+    }
+  }, [appendLog, templates]);
+
+  const updateTpl = useCallback((channel: Channel, field: "title_template" | "description_template", value: string) => {
+    setTemplates((prev) => {
+      const cur = prev[channel] ?? { channel, title_template: "", description_template: "", updated_at: null };
+      return { ...prev, [channel]: { ...cur, [field]: value } };
+    });
+  }, []);
+
   return (
-    <div className="p-6 max-w-4xl mx-auto text-zinc-100">
+    <div className="p-6 max-w-6xl mx-auto text-zinc-100">
       <h1 className="text-2xl font-bold mb-2">YouTube Slot Manager</h1>
       <p className="text-sm text-zinc-400 mb-6">
-        Link a YouTube channel per language and trigger broadcast slot switches manually.
-        The 4 AM auto-switch (when implemented) will reuse this exact endpoint.
+        Each switch creates a new broadcast (titles/description from template) bound to the
+        same reusable stream — broadcaster keeps pushing the same RTMP key forever.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -128,13 +176,15 @@ export default function YouTubeSlotPage(): React.JSX.Element {
                   <div>
                     <span className="text-zinc-500">Channel:</span> {s.channel_title}
                   </div>
-                  <div>
-                    <span className="text-zinc-500">ID:</span>{" "}
-                    <code className="text-xs">{s.channel_id}</code>
-                  </div>
+                  {s.reusable_stream_key && (
+                    <div>
+                      <span className="text-zinc-500">Stream key:</span>{" "}
+                      <code className="text-xs">{s.reusable_stream_key}</code>
+                    </div>
+                  )}
                   {s.current_broadcast && (
                     <div>
-                      <span className="text-zinc-500">Current broadcast:</span>{" "}
+                      <span className="text-zinc-500">Current:</span>{" "}
                       <a
                         href={`https://www.youtube.com/watch?v=${s.current_broadcast}`}
                         target="_blank"
@@ -175,6 +225,48 @@ export default function YouTubeSlotPage(): React.JSX.Element {
           );
         })}
       </div>
+
+      {/* Templates */}
+      {CHANNELS.map((channel) => {
+        const tpl = templates[channel];
+        if (!tpl) return null;
+        const isSaving = savingTpl[channel];
+        return (
+          <div key={`tpl-${channel}`} className="border border-zinc-700 rounded-lg p-5 bg-zinc-900 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold" style={{ color: CHANNEL_COLOR[channel] }}>
+                {CHANNEL_LABEL[channel]} Template
+              </h3>
+              <button
+                onClick={() => saveTemplate(channel)}
+                disabled={isSaving}
+                className="px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs disabled:opacity-50"
+              >
+                {isSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500 mb-2">
+              Placeholders: <code>{`{date}`}</code> <code>{`{time}`}</code>{" "}
+              <code>{`{weekday}`}</code> <code>{`{datetime}`}</code>
+            </p>
+            <label className="text-xs text-zinc-400 block mb-1">Title</label>
+            <input
+              type="text"
+              value={tpl.title_template}
+              onChange={(e) => updateTpl(channel, "title_template", e.target.value)}
+              className="w-full px-3 py-2 bg-zinc-800 text-zinc-100 border border-zinc-700 rounded text-sm mb-3"
+              maxLength={100}
+            />
+            <label className="text-xs text-zinc-400 block mb-1">Description</label>
+            <textarea
+              value={tpl.description_template}
+              onChange={(e) => updateTpl(channel, "description_template", e.target.value)}
+              className="w-full px-3 py-2 bg-zinc-800 text-zinc-100 border border-zinc-700 rounded text-xs font-mono"
+              rows={14}
+            />
+          </div>
+        );
+      })}
 
       <div className="border border-zinc-700 rounded-lg p-4 bg-zinc-900">
         <h3 className="text-sm font-bold mb-2 text-zinc-400">Activity log</h3>

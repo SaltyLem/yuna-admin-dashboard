@@ -162,6 +162,82 @@ router.delete("/credentials/:channel", async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// ── Templates ──────────────────────────────────────────────────
+
+type Template = {
+  channel: Channel;
+  title_template: string;
+  description_template: string;
+  updated_at: string;
+};
+
+router.get("/template/:channel", async (req: Request, res: Response) => {
+  if (!isChannel(req.params.channel)) {
+    res.status(400).json({ error: "Invalid channel" });
+    return;
+  }
+  const r = await query<Template>(
+    `SELECT channel, title_template, description_template, updated_at
+     FROM stream_youtube_templates WHERE channel = $1`,
+    [req.params.channel],
+  );
+  res.json(r.rows[0] ?? { channel: req.params.channel, title_template: "", description_template: "", updated_at: null });
+});
+
+router.put("/template/:channel", async (req: Request, res: Response) => {
+  if (!isChannel(req.params.channel)) {
+    res.status(400).json({ error: "Invalid channel" });
+    return;
+  }
+  const { title_template, description_template } = (req.body as Record<string, string | undefined>) ?? {};
+  if (typeof title_template !== "string" || typeof description_template !== "string") {
+    res.status(400).json({ error: "title_template and description_template required" });
+    return;
+  }
+  await query(
+    `INSERT INTO stream_youtube_templates (channel, title_template, description_template, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (channel) DO UPDATE SET
+       title_template = EXCLUDED.title_template,
+       description_template = EXCLUDED.description_template,
+       updated_at = NOW()`,
+    [req.params.channel, title_template, description_template],
+  );
+  res.json({ ok: true });
+});
+
+const WEEKDAYS_JA = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"];
+const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function applyTemplate(tpl: string, channel: Channel): string {
+  const now = new Date();
+  // JST output (UTC+9). Server timezone may vary so format manually.
+  const jst = new Date(now.getTime() + 9 * 60 * 60_000);
+  const yyyy = jst.getUTCFullYear();
+  const mm = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(jst.getUTCDate()).padStart(2, "0");
+  const hh = String(jst.getUTCHours()).padStart(2, "0");
+  const mi = String(jst.getUTCMinutes()).padStart(2, "0");
+  const dow = jst.getUTCDay();
+  const date = `${yyyy}/${mm}/${dd}`;
+  const time = `${hh}:${mi}`;
+  const weekday = (channel === "ja" ? WEEKDAYS_JA : WEEKDAYS_EN)[dow];
+  return tpl
+    .replaceAll("{date}", date)
+    .replaceAll("{time}", time)
+    .replaceAll("{weekday}", weekday)
+    .replaceAll("{datetime}", `${date} ${time}`);
+}
+
+async function getTemplate(channel: Channel): Promise<Template | null> {
+  const r = await query<Template>(
+    `SELECT channel, title_template, description_template, updated_at
+     FROM stream_youtube_templates WHERE channel = $1`,
+    [channel],
+  );
+  return r.rows[0] ?? null;
+}
+
 // ── Status ─────────────────────────────────────────────────────
 
 router.get("/status", async (req: Request, res: Response) => {
@@ -288,7 +364,9 @@ router.post("/switch", async (req: Request, res: Response) => {
     return;
   }
 
-  const finalTitle = title ?? `YUNA Live ${new Date().toISOString().slice(0, 10)}`;
+  const tpl = await getTemplate(channel);
+  const finalTitle = (title ?? (tpl?.title_template ? applyTemplate(tpl.title_template, channel) : `YUNA Live ${new Date().toISOString().slice(0, 10)}`)).slice(0, 100);
+  const finalDescription = description ?? (tpl?.description_template ? applyTemplate(tpl.description_template, channel) : "");
   const finalPrivacy = privacyStatus ?? "public";
 
   try {
@@ -314,7 +392,7 @@ router.post("/switch", async (req: Request, res: Response) => {
         method: "POST",
         headers: auth,
         body: JSON.stringify({
-          snippet: { title: finalTitle, description: description ?? "", scheduledStartTime: startTime },
+          snippet: { title: finalTitle, description: finalDescription, scheduledStartTime: startTime },
           status: { privacyStatus: finalPrivacy, selfDeclaredMadeForKids: false },
           contentDetails: {
             enableAutoStart: false,
