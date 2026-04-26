@@ -171,34 +171,46 @@ export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
       () => (window as unknown as { __thumbnailReady?: boolean }).__thumbnailReady === true,
       { timeout: 30_000 },
     );
-    // canvas pixel 診断 — Live2D canvas が pixel 出力してるか
+    // canvas / model 診断 — 中身があるか toDataURL で確認
     try {
-      const canvasInfo = await page.evaluate(() => {
+      const info = await page.evaluate(async () => {
         const canvases = Array.from(document.querySelectorAll("canvas"));
-        return canvases.map((c, i) => {
+        const out: Array<Record<string, unknown>> = [];
+        for (const c of canvases) {
+          let dataLen = 0;
           let nonEmpty = false;
+          let scanW = 0, scanH = 0, opaqueCount = 0;
           try {
-            const ctx = c.getContext("2d");
-            if (ctx) {
-              const data = ctx.getImageData(0, 0, Math.min(50, c.width), Math.min(50, c.height));
-              for (let p = 3; p < data.data.length; p += 4) {
-                if (data.data[p] > 0) { nonEmpty = true; break; }
-              }
-            } else {
-              // WebGL canvas: read via gl.readPixels
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const gl = (c.getContext("webgl2") || c.getContext("webgl")) as any;
-              if (gl) {
-                const px = new Uint8Array(4 * 50 * 50);
-                gl.readPixels(0, 0, 50, 50, gl.RGBA, gl.UNSIGNED_BYTE, px);
-                for (let p = 3; p < px.length; p += 4) if (px[p] > 0) { nonEmpty = true; break; }
-              }
+            const url = c.toDataURL("image/png");
+            dataLen = url.length;
+            // 透明 PNG (1x1) と区別するためサイズで雑に判定
+            nonEmpty = url.length > 200;
+          } catch (e) {
+            return [{ err: String(e) }];
+          }
+          // 全面を scan して alpha>0 のピクセル数
+          try {
+            const tmp = document.createElement("canvas");
+            tmp.width = 200; tmp.height = 200;
+            const tctx = tmp.getContext("2d");
+            if (tctx) {
+              tctx.drawImage(c, 0, 0, 200, 200);
+              const d = tctx.getImageData(0, 0, 200, 200);
+              for (let p = 3; p < d.data.length; p += 4) if (d.data[p] > 0) opaqueCount++;
+              scanW = 200; scanH = 200;
             }
-          } catch (e) { return { i, w: c.width, h: c.height, err: String(e) }; }
-          return { i, w: c.width, h: c.height, cssW: c.style.width, cssH: c.style.height, nonEmpty };
-        });
+          } catch {}
+          out.push({
+            w: c.width, h: c.height,
+            cssW: c.style.width, cssH: c.style.height,
+            dataUrlLen: dataLen,
+            opaquePx: opaqueCount,
+            scan: `${scanW}x${scanH}`,
+          });
+        }
+        return out;
       });
-      console.log("[thumb-page:canvas]", JSON.stringify(canvasInfo));
+      console.log("[thumb-page:canvas]", JSON.stringify(info));
     } catch (e) {
       console.log("[thumb-page:canvas] eval error", e);
     }
