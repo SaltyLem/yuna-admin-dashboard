@@ -170,7 +170,7 @@ export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
     await page.goto(url, { waitUntil: "networkidle0", timeout: 30_000 });
     await page.waitForFunction(
       () => (window as unknown as { __thumbnailReady?: boolean }).__thumbnailReady === true,
-      { timeout: 20_000 },
+      { timeout: 30_000 },
     );
     const png = await page.screenshot({ type: "png", omitBackground: false });
     return Buffer.from(png);
