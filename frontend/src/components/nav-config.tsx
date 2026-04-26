@@ -74,6 +74,7 @@ export const NAV: NavItem[] = [
       { href: "/stream/reading-rules", label: "Reading rules" },
       { href: "/stream/history", label: "History" },
       { href: "/stream/auto-play", label: "Auto Play" },
+      { href: "/stream/youtube-slot", label: "YouTube Slot" },
     ],
   },
   {

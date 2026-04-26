@@ -299,10 +299,6 @@ function requireIngestToken(req: Request, res: Response, next: NextFunction): vo
 }
 app.post("/metrics/ingest", requireIngestToken, metricsIngestHandler);
 
-// Stream backend ↔ admin-db credentials access. Uses STREAM_ADMIN_TOKEN
-// shared secret (not user JWT). Mount before `app.use(requireAuth)`.
-app.use("/stream/youtube", streamYouTubeRoutes);
-
 // Local mp4 / scenario preview — uses ?token= because <video> tags
 // cannot send Authorization headers.
 app.get("/video/file/:kind/:name", requireAuthHeaderOrQuery, videoFileHandler);
@@ -312,6 +308,7 @@ app.use("/schedules", schedulesRoutes);
 app.use("/programs", programsRoutes);
 app.use("/comments", commentsRoutes);
 app.use("/stream", streamRoutes);
+app.use("/stream/youtube", streamYouTubeRoutes);
 app.use("/persons", personsRoutes);
 app.use("/forex", forexRoutes);
 app.use("/metrics", metricsRoutes);
