@@ -171,6 +171,34 @@ export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
       () => (window as unknown as { __thumbnailReady?: boolean }).__thumbnailReady === true,
       { timeout: 30_000 },
     );
+
+    // Headless chromium が WebGL canvas を screenshot に含めない既知 issue 回避.
+    // canvas を toDataURL で抽出 → 同じ位置に <img> を挿入して canvas を非表示.
+    // <img> なら確実に capture される.
+    const replaced = await page.evaluate(() => {
+      const canvases = Array.from(document.querySelectorAll("canvas"));
+      let n = 0;
+      for (const c of canvases) {
+        try {
+          const url = c.toDataURL("image/png");
+          if (url.length < 100) continue;
+          const img = new Image();
+          img.src = url;
+          img.style.position = c.style.position || "absolute";
+          img.style.left = c.style.left || "0";
+          img.style.top = c.style.top || "0";
+          img.style.width = c.style.width || `${c.width}px`;
+          img.style.height = c.style.height || `${c.height}px`;
+          c.parentElement?.insertBefore(img, c);
+          c.style.display = "none";
+          n++;
+        } catch {}
+      }
+      return n;
+    });
+    console.log(`[thumb-page] swapped ${replaced} canvas(es) → img`);
+    // image decode を待つ
+    await new Promise((r) => setTimeout(r, 500));
     // canvas / model 診断 — 中身があるか toDataURL で確認
     try {
       const info = await page.evaluate(async () => {
