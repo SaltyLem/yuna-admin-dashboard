@@ -5,7 +5,6 @@ FROM node:22-alpine
 # chromium-browser を使う.
 RUN apk add --no-cache \
     chromium \
-    chromium-swiftshader \
     nss \
     freetype \
     harfbuzz \
@@ -13,9 +12,7 @@ RUN apk add --no-cache \
     ttf-freefont \
     font-noto \
     font-noto-cjk \
-    font-noto-emoji \
-    mesa-gl \
-    mesa-dri-gallium
+    font-noto-emoji
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser

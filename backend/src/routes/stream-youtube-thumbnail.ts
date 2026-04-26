@@ -94,22 +94,12 @@ let browserPromise: Promise<Browser> | null = null;
 async function getBrowser(): Promise<Browser> {
   if (!browserPromise) {
     const executablePath = process.env["PUPPETEER_EXECUTABLE_PATH"] || undefined;
+    // production の thumbnail render は staticChar=1 で <img> ベース描画なので
+    // Live2D / WebGL を使わない. headless + sandbox off だけで十分.
     browserPromise = puppeteer.launch({
       headless: true,
       executablePath,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        // headless alpine chromium は GPU なし. PIXI/Live2D WebGL のために
-        // ANGLE (SwiftShader backend) でソフトウェアレンダ.
-        // 新版 Chromium で --use-gl=swiftshader は廃止され ANGLE 経由必須.
-        "--enable-unsafe-swiftshader",
-        "--use-angle=swiftshader",
-        "--enable-webgl",
-        "--ignore-gpu-blocklist",
-        "--disable-gpu-sandbox",
-      ],
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     }).catch((err) => {
       browserPromise = null;
       throw err;
@@ -136,7 +126,7 @@ export interface RenderQuery {
   charTop?: string;
 }
 
-function buildOverlayUrl(q: RenderQuery): string {
+function buildOverlayUrl(q: RenderQuery, opts?: { staticChar?: boolean }): string {
   const u = new URL(`${OVERLAY_URL.replace(/\/$/, "")}/${q.channel}/thumbnail`);
   for (const [k, v] of Object.entries(q)) {
     if (k === "channel" || v == null || v === "") continue;
@@ -144,124 +134,29 @@ function buildOverlayUrl(q: RenderQuery): string {
   }
   // 描画には dev panel 不要
   u.searchParams.set("dev", "0");
+  // production render は事前 bake した PNG キャラを使う (Live2D は headless で
+  // 動かないため). dev iframe など Live2D を見せたい時は false で呼ぶ.
+  if (opts?.staticChar !== false) u.searchParams.set("staticChar", "1");
   return u.toString();
 }
 
-/** Puppeteer で overlay/thumbnail をスクショして PNG Buffer を返す */
+/** Puppeteer で overlay/thumbnail をスクショして PNG Buffer を返す.
+ *  staticChar=1 経由なので Live2D / WebGL は描画せず、事前 bake した
+ *  yuna-poses PNG を <img> で配置. headless chromium で確実に capture できる. */
 export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
   const browser = await getBrowser();
   const page = await browser.newPage();
-  // page console / errors を admin-backend ログに出す (Live2D / WebGL 等の
-  // 失敗を見えるようにする)
-  page.on("console", (msg) => {
-    const t = msg.type();
-    if (t === "error" || t === "warning" || t === "log") console.log(`[thumb-page:${t}]`, msg.text());
-  });
   page.on("pageerror", (err) => console.log("[thumb-page:pageerror]", err.message));
   page.on("requestfailed", (req) =>
     console.log("[thumb-page:reqfail]", req.url(), req.failure()?.errorText));
-  page.on("response", (res) => {
-    if (res.status() >= 400) console.log("[thumb-page:resp", res.status(), "]", res.url());
-  });
   try {
     await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
     const url = buildOverlayUrl(q);
     await page.goto(url, { waitUntil: "networkidle0", timeout: 30_000 });
     await page.waitForFunction(
       () => (window as unknown as { __thumbnailReady?: boolean }).__thumbnailReady === true,
-      { timeout: 30_000 },
+      { timeout: 15_000 },
     );
-
-    // Headless chromium が WebGL canvas を screenshot に含めない既知 issue 回避.
-    // canvas を toDataURL で抽出 → 同じ位置に <img> を挿入して canvas を非表示.
-    // <img> なら確実に capture される.
-    const replaced = await page.evaluate(() => {
-      const canvases = Array.from(document.querySelectorAll("canvas"));
-      let n = 0;
-      for (const c of canvases) {
-        try {
-          const url = c.toDataURL("image/png");
-          if (url.length < 100) continue;
-          const img = new Image();
-          img.src = url;
-          img.style.position = c.style.position || "absolute";
-          img.style.left = c.style.left || "0";
-          img.style.top = c.style.top || "0";
-          img.style.width = c.style.width || `${c.width}px`;
-          img.style.height = c.style.height || `${c.height}px`;
-          c.parentElement?.insertBefore(img, c);
-          c.style.display = "none";
-          n++;
-        } catch {}
-      }
-      return n;
-    });
-    console.log(`[thumb-page] swapped ${replaced} canvas(es) → img`);
-    // image decode を待つ
-    await new Promise((r) => setTimeout(r, 500));
-    // canvas / model 診断 — 中身があるか toDataURL で確認
-    try {
-      const info = await page.evaluate(async () => {
-        const canvases = Array.from(document.querySelectorAll("canvas"));
-        const out: Array<Record<string, unknown>> = [];
-        for (const c of canvases) {
-          let dataLen = 0;
-          let nonEmpty = false;
-          let scanW = 0, scanH = 0, opaqueCount = 0;
-          try {
-            const url = c.toDataURL("image/png");
-            dataLen = url.length;
-            // 透明 PNG (1x1) と区別するためサイズで雑に判定
-            nonEmpty = url.length > 200;
-          } catch (e) {
-            return [{ err: String(e) }];
-          }
-          // 全面を scan して alpha>0 のピクセル数
-          try {
-            const tmp = document.createElement("canvas");
-            tmp.width = 200; tmp.height = 200;
-            const tctx = tmp.getContext("2d");
-            if (tctx) {
-              tctx.drawImage(c, 0, 0, 200, 200);
-              const d = tctx.getImageData(0, 0, 200, 200);
-              for (let p = 3; p < d.data.length; p += 4) if (d.data[p] > 0) opaqueCount++;
-              scanW = 200; scanH = 200;
-            }
-          } catch {}
-          out.push({
-            w: c.width, h: c.height,
-            cssW: c.style.width, cssH: c.style.height,
-            dataUrlLen: dataLen,
-            opaquePx: opaqueCount,
-            scan: `${scanW}x${scanH}`,
-          });
-        }
-        return out;
-      });
-      console.log("[thumb-page:canvas]", JSON.stringify(info));
-    } catch (e) {
-      console.log("[thumb-page:canvas] eval error", e);
-    }
-    // WebGL 診断
-    try {
-      const gl = await page.evaluate(() => {
-        const c = document.createElement("canvas");
-        const ctx = c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const g = ctx as any;
-        if (!g) return { ok: false, reason: "no context" };
-        const dbg = g.getExtension?.("WEBGL_debug_renderer_info");
-        return {
-          ok: true,
-          vendor: g.getParameter(g.VENDOR),
-          renderer: dbg ? g.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER),
-          version: g.getParameter(g.VERSION),
-        };
-      });
-      console.log("[thumb-page:webgl]", JSON.stringify(gl));
-    } catch (e) {
-      console.log("[thumb-page:webgl] eval error", e);
-    }
     const png = await page.screenshot({ type: "png", omitBackground: false });
     return Buffer.from(png);
   } finally {
