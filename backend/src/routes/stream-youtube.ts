@@ -303,7 +303,10 @@ router.post("/switch", async (req: Request, res: Response) => {
       await endActiveBroadcast(channel, accessToken);
     }
 
-    // Create new broadcast (autoStart=true → goes live as soon as RTMP is detected)
+    // Create new broadcast. enableMonitorStream=false skips the "testing"
+    // phase so we can transition straight from ready → live. autoStart is
+    // unreliable when the stream is already pushing continuously, so we
+    // transition manually below.
     const startTime = new Date(Date.now() + 60_000).toISOString();
     const bcRes = await fetch(
       "https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails",
@@ -313,7 +316,12 @@ router.post("/switch", async (req: Request, res: Response) => {
         body: JSON.stringify({
           snippet: { title: finalTitle, description: description ?? "", scheduledStartTime: startTime },
           status: { privacyStatus: finalPrivacy, selfDeclaredMadeForKids: false },
-          contentDetails: { enableAutoStart: true, enableAutoStop: false, enableDvr: true },
+          contentDetails: {
+            enableAutoStart: false,
+            enableAutoStop: false,
+            enableDvr: true,
+            monitorStream: { enableMonitorStream: false },
+          },
         }),
       },
     );
@@ -331,6 +339,30 @@ router.post("/switch", async (req: Request, res: Response) => {
     if (!bindRes.ok) {
       res.status(500).json({ error: "Failed to bind", detail: (await bindRes.text()).slice(0, 500) });
       return;
+    }
+
+    // Manually transition to live (poll until the bound stream reports active)
+    let liveOk = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const tRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/liveBroadcasts/transition?broadcastStatus=live&id=${broadcast.id}&part=id,status`,
+        { method: "POST", headers: auth },
+      );
+      if (tRes.ok) {
+        liveOk = true;
+        break;
+      }
+      const errBody = await tRes.text();
+      // Stream not yet active — retry. Other errors → bail out.
+      if (!errBody.includes("redundantTransition") && !errBody.includes("invalidTransition") && !errBody.includes("errorStreamInactive")) {
+        if (attempt === 5) {
+          console.warn(`[switch:${channel}] transition to live failed after retries: ${errBody.slice(0, 300)}`);
+        }
+      } else if (errBody.includes("redundantTransition")) {
+        liveOk = true;
+        break;
+      }
     }
 
     const fullRtmpUrl = `${stream.ingest_address}/${stream.stream_key}`;
@@ -362,6 +394,7 @@ router.post("/switch", async (req: Request, res: Response) => {
       rtmp_url: fullRtmpUrl,
       stream_key: stream.stream_key,
       stream_created: stream.created,
+      transitioned_to_live: liveOk,
       title: broadcast.snippet.title,
       watch_url: `https://www.youtube.com/watch?v=${broadcast.id}`,
     });
