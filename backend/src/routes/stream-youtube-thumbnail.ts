@@ -155,10 +155,9 @@ export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
   // 失敗を見えるようにする)
   page.on("console", (msg) => {
     const t = msg.type();
-    if (t === "error" || t === "warning") console.log(`[thumb-page:${t}]`, msg.text());
+    if (t === "error" || t === "warning" || t === "log") console.log(`[thumb-page:${t}]`, msg.text());
   });
   page.on("pageerror", (err) => console.log("[thumb-page:pageerror]", err.message));
-  // 404 / 失敗リクエストの URL を出す (どのアセットが落ちてるか追跡)
   page.on("requestfailed", (req) =>
     console.log("[thumb-page:reqfail]", req.url(), req.failure()?.errorText));
   page.on("response", (res) => {
@@ -172,6 +171,26 @@ export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
       () => (window as unknown as { __thumbnailReady?: boolean }).__thumbnailReady === true,
       { timeout: 30_000 },
     );
+    // WebGL 診断
+    try {
+      const gl = await page.evaluate(() => {
+        const c = document.createElement("canvas");
+        const ctx = c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const g = ctx as any;
+        if (!g) return { ok: false, reason: "no context" };
+        const dbg = g.getExtension?.("WEBGL_debug_renderer_info");
+        return {
+          ok: true,
+          vendor: g.getParameter(g.VENDOR),
+          renderer: dbg ? g.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER),
+          version: g.getParameter(g.VERSION),
+        };
+      });
+      console.log("[thumb-page:webgl]", JSON.stringify(gl));
+    } catch (e) {
+      console.log("[thumb-page:webgl] eval error", e);
+    }
     const png = await page.screenshot({ type: "png", omitBackground: false });
     return Buffer.from(png);
   } finally {
