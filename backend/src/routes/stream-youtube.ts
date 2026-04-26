@@ -51,6 +51,9 @@ type Credentials = {
   channel_title: string;
   linked_at: string;
   updated_at: string;
+  reusable_stream_id: string | null;
+  reusable_stream_key: string | null;
+  reusable_ingest_address: string | null;
 };
 
 // ── OAuth state (in-memory; small TTL so persistence not needed) ──
@@ -103,7 +106,8 @@ router.get("/oauth/state/:state", (req: Request, res: Response) => {
 
 async function getCredentials(channel: Channel): Promise<Credentials | null> {
   const r = await query<Credentials>(
-    `SELECT channel, refresh_token, client_id, client_secret, channel_id, channel_title, linked_at, updated_at
+    `SELECT channel, refresh_token, client_id, client_secret, channel_id, channel_title,
+            linked_at, updated_at, reusable_stream_id, reusable_stream_key, reusable_ingest_address
      FROM stream_youtube_credentials WHERE channel = $1`,
     [channel],
   );
@@ -182,6 +186,10 @@ router.get("/status", async (req: Request, res: Response) => {
     channel_id: creds?.channel_id ?? null,
     channel_title: creds?.channel_title ?? null,
     linked_at: creds?.linked_at ?? null,
+    reusable_stream_key: creds?.reusable_stream_key ?? null,
+    reusable_rtmp_url: creds?.reusable_stream_key
+      ? `${creds.reusable_ingest_address}/${creds.reusable_stream_key}`
+      : null,
     current_broadcast: bc?.broadcast_id ?? null,
     current_rtmp: bc?.rtmp_url ?? null,
     last_switch_at: bc?.switched_at ?? null,
@@ -206,12 +214,69 @@ async function refreshAccessToken(creds: Credentials): Promise<string> {
   return data.access_token;
 }
 
+async function ensureReusableStream(
+  channel: Channel,
+  creds: Credentials,
+  accessToken: string,
+): Promise<{ stream_id: string; stream_key: string; ingest_address: string; created: boolean }> {
+  if (creds.reusable_stream_id && creds.reusable_stream_key && creds.reusable_ingest_address) {
+    return {
+      stream_id: creds.reusable_stream_id,
+      stream_key: creds.reusable_stream_key,
+      ingest_address: creds.reusable_ingest_address,
+      created: false,
+    };
+  }
+  // First-time setup: create a reusable stream
+  const r = await fetch(
+    "https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        snippet: { title: `YUNA ${channel.toUpperCase()} reusable stream` },
+        cdn: { format: "1080p", ingestionType: "rtmp", frameRate: "30fps", resolution: "1080p" },
+        contentDetails: { isReusable: true },
+      }),
+    },
+  );
+  if (!r.ok) throw new Error(`Failed to create reusable stream: ${await r.text()}`);
+  const data = (await r.json()) as {
+    id: string;
+    cdn: { ingestionInfo: { ingestionAddress: string; streamName: string } };
+  };
+  const ingestAddress = data.cdn.ingestionInfo.ingestionAddress;
+  const streamKey = data.cdn.ingestionInfo.streamName;
+  await query(
+    `UPDATE stream_youtube_credentials
+     SET reusable_stream_id = $1, reusable_stream_key = $2, reusable_ingest_address = $3, updated_at = NOW()
+     WHERE channel = $4`,
+    [data.id, streamKey, ingestAddress, channel],
+  );
+  return { stream_id: data.id, stream_key: streamKey, ingest_address: ingestAddress, created: true };
+}
+
+async function endActiveBroadcast(channel: Channel, accessToken: string): Promise<void> {
+  const r = await query<{ broadcast_id: string }>(
+    `SELECT broadcast_id FROM stream_youtube_broadcasts WHERE channel = $1`,
+    [channel],
+  );
+  const prevId = r.rows[0]?.broadcast_id;
+  if (!prevId) return;
+  // Transition to "complete" — ignore errors (broadcast may already be ended)
+  await fetch(
+    `https://www.googleapis.com/youtube/v3/liveBroadcasts/transition?broadcastStatus=complete&id=${prevId}&part=id,status`,
+    { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } },
+  ).catch(() => {});
+}
+
 router.post("/switch", async (req: Request, res: Response) => {
-  const { channel, title, description, privacyStatus } = (req.body ?? {}) as {
+  const { channel, title, description, privacyStatus, endPrevious } = (req.body ?? {}) as {
     channel?: unknown;
     title?: string;
     description?: string;
     privacyStatus?: string;
+    endPrevious?: boolean;
   };
   if (!isChannel(channel)) {
     res.status(400).json({ error: "Invalid channel" });
@@ -230,6 +295,15 @@ router.post("/switch", async (req: Request, res: Response) => {
     const accessToken = await refreshAccessToken(creds);
     const auth = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
 
+    // Ensure reusable stream exists
+    const stream = await ensureReusableStream(channel, creds, accessToken);
+
+    // Optionally end the previous broadcast
+    if (endPrevious !== false) {
+      await endActiveBroadcast(channel, accessToken);
+    }
+
+    // Create new broadcast (autoStart=true → goes live as soon as RTMP is detected)
     const startTime = new Date(Date.now() + 60_000).toISOString();
     const bcRes = await fetch(
       "https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails",
@@ -249,29 +323,9 @@ router.post("/switch", async (req: Request, res: Response) => {
     }
     const broadcast = (await bcRes.json()) as { id: string; snippet: { title: string } };
 
-    const streamRes = await fetch(
-      "https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails",
-      {
-        method: "POST",
-        headers: auth,
-        body: JSON.stringify({
-          snippet: { title: `${finalTitle} stream` },
-          cdn: { format: "1080p", ingestionType: "rtmp", frameRate: "30fps", resolution: "1080p" },
-          contentDetails: { isReusable: false },
-        }),
-      },
-    );
-    if (!streamRes.ok) {
-      res.status(500).json({ error: "Failed to create stream", detail: (await streamRes.text()).slice(0, 500) });
-      return;
-    }
-    const stream = (await streamRes.json()) as {
-      id: string;
-      cdn: { ingestionInfo: { ingestionAddress: string; streamName: string } };
-    };
-
+    // Bind to reusable stream
     const bindRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?part=id,contentDetails&id=${broadcast.id}&streamId=${stream.id}`,
+      `https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?part=id,contentDetails&id=${broadcast.id}&streamId=${stream.stream_id}`,
       { method: "POST", headers: auth },
     );
     if (!bindRes.ok) {
@@ -279,9 +333,7 @@ router.post("/switch", async (req: Request, res: Response) => {
       return;
     }
 
-    const ingestAddress = stream.cdn.ingestionInfo.ingestionAddress;
-    const streamKey = stream.cdn.ingestionInfo.streamName;
-    const fullRtmpUrl = `${ingestAddress}/${streamKey}`;
+    const fullRtmpUrl = `${stream.ingest_address}/${stream.stream_key}`;
 
     await query(
       `INSERT INTO stream_youtube_broadcasts (channel, broadcast_id, stream_id, rtmp_url, ingest_address, stream_key, title, switched_at)
@@ -294,9 +346,10 @@ router.post("/switch", async (req: Request, res: Response) => {
          stream_key = EXCLUDED.stream_key,
          title = EXCLUDED.title,
          switched_at = NOW()`,
-      [channel, broadcast.id, stream.id, fullRtmpUrl, ingestAddress, streamKey, broadcast.snippet.title],
+      [channel, broadcast.id, stream.stream_id, fullRtmpUrl, stream.ingest_address, stream.stream_key, broadcast.snippet.title],
     );
 
+    // Notify (broadcaster can ignore — RTMP key didn't change)
     await getRedisPub().publish(
       "stream:rtmp-switch",
       JSON.stringify({ channel, broadcast_id: broadcast.id, rtmp_url: fullRtmpUrl }),
@@ -305,8 +358,10 @@ router.post("/switch", async (req: Request, res: Response) => {
     res.json({
       ok: true,
       broadcast_id: broadcast.id,
-      stream_id: stream.id,
+      stream_id: stream.stream_id,
       rtmp_url: fullRtmpUrl,
+      stream_key: stream.stream_key,
+      stream_created: stream.created,
       title: broadcast.snippet.title,
       watch_url: `https://www.youtube.com/watch?v=${broadcast.id}`,
     });
