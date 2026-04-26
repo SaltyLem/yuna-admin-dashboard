@@ -158,6 +158,12 @@ export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
     if (t === "error" || t === "warning") console.log(`[thumb-page:${t}]`, msg.text());
   });
   page.on("pageerror", (err) => console.log("[thumb-page:pageerror]", err.message));
+  // 404 / 失敗リクエストの URL を出す (どのアセットが落ちてるか追跡)
+  page.on("requestfailed", (req) =>
+    console.log("[thumb-page:reqfail]", req.url(), req.failure()?.errorText));
+  page.on("response", (res) => {
+    if (res.status() >= 400) console.log("[thumb-page:resp", res.status(), "]", res.url());
+  });
   try {
     await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
     const url = buildOverlayUrl(q);
