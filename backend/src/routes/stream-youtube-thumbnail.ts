@@ -171,6 +171,37 @@ export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
       () => (window as unknown as { __thumbnailReady?: boolean }).__thumbnailReady === true,
       { timeout: 30_000 },
     );
+    // canvas pixel 診断 — Live2D canvas が pixel 出力してるか
+    try {
+      const canvasInfo = await page.evaluate(() => {
+        const canvases = Array.from(document.querySelectorAll("canvas"));
+        return canvases.map((c, i) => {
+          let nonEmpty = false;
+          try {
+            const ctx = c.getContext("2d");
+            if (ctx) {
+              const data = ctx.getImageData(0, 0, Math.min(50, c.width), Math.min(50, c.height));
+              for (let p = 3; p < data.data.length; p += 4) {
+                if (data.data[p] > 0) { nonEmpty = true; break; }
+              }
+            } else {
+              // WebGL canvas: read via gl.readPixels
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const gl = (c.getContext("webgl2") || c.getContext("webgl")) as any;
+              if (gl) {
+                const px = new Uint8Array(4 * 50 * 50);
+                gl.readPixels(0, 0, 50, 50, gl.RGBA, gl.UNSIGNED_BYTE, px);
+                for (let p = 3; p < px.length; p += 4) if (px[p] > 0) { nonEmpty = true; break; }
+              }
+            }
+          } catch (e) { return { i, w: c.width, h: c.height, err: String(e) }; }
+          return { i, w: c.width, h: c.height, cssW: c.style.width, cssH: c.style.height, nonEmpty };
+        });
+      });
+      console.log("[thumb-page:canvas]", JSON.stringify(canvasInfo));
+    } catch (e) {
+      console.log("[thumb-page:canvas] eval error", e);
+    }
     // WebGL 診断
     try {
       const gl = await page.evaluate(() => {
