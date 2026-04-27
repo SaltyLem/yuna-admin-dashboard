@@ -302,10 +302,10 @@ interface ScheduleFormProps {
   onDeleted: () => void;
 }
 
-/** info:morning は 2 時間枠固定 (config/cognition 都合)。editor もその前提で振る舞う。 */
-const MORNING_PROGRAM = "info:morning";
-const MORNING_DURATION_MIN = 120;
-const MIN_MORNING_DURATION_MIN = 60;
+/** info:morning / noon / evening は 2 時間枠固定 (config/cognition 都合)。editor もその前提で振る舞う。 */
+const FIXED_DURATION_PROGRAMS = new Set(["info:morning", "info:noon", "info:evening"]);
+const FIXED_DURATION_MIN = 120;
+const MIN_FIXED_DURATION_MIN = 60;
 
 function addMinutes(hhmm: string, deltaMin: number): string {
   const total = parseTime(hhmm) + deltaMin;
@@ -317,14 +317,14 @@ function addMinutes(hhmm: string, deltaMin: number): string {
 
 function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: ScheduleFormProps) {
   const [form, setForm] = useState<ScheduleFormValues>(() => {
-    if (initial.program === MORNING_PROGRAM) {
-      return { ...initial, endTime: addMinutes(initial.startTime, MORNING_DURATION_MIN) };
+    if (FIXED_DURATION_PROGRAMS.has(initial.program)) {
+      return { ...initial, endTime: addMinutes(initial.startTime, FIXED_DURATION_MIN) };
     }
     return initial;
   });
   const [error, setError] = useState<string | null>(null);
 
-  const isMorning = form.program === MORNING_PROGRAM;
+  const isFixedDuration = FIXED_DURATION_PROGRAMS.has(form.program);
 
   const toggleDay = (day: number) => {
     setForm((f) => ({
@@ -337,16 +337,16 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
 
   const handleStartChange = (v: string) => {
     setForm((f) =>
-      f.program === MORNING_PROGRAM
-        ? { ...f, startTime: v, endTime: addMinutes(v, MORNING_DURATION_MIN) }
+      FIXED_DURATION_PROGRAMS.has(f.program)
+        ? { ...f, startTime: v, endTime: addMinutes(v, FIXED_DURATION_MIN) }
         : { ...f, startTime: v },
     );
   };
 
   const handleProgramChange = (next: string) => {
     setForm((f) =>
-      next === MORNING_PROGRAM
-        ? { ...f, program: next, endTime: addMinutes(f.startTime, MORNING_DURATION_MIN) }
+      FIXED_DURATION_PROGRAMS.has(next)
+        ? { ...f, program: next, endTime: addMinutes(f.startTime, FIXED_DURATION_MIN) }
         : { ...f, program: next },
     );
   };
@@ -361,8 +361,8 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
         ? endMin + 1440 - startMin
         : 0;
 
-    if (form.program === MORNING_PROGRAM && duration < MIN_MORNING_DURATION_MIN) {
-      setError(`${MORNING_PROGRAM} は最低 1 時間必要です (現在 ${duration} 分)`);
+    if (FIXED_DURATION_PROGRAMS.has(form.program) && duration < MIN_FIXED_DURATION_MIN) {
+      setError(`${form.program} は最低 1 時間必要です (現在 ${duration} 分)`);
       return;
     }
 
@@ -475,14 +475,14 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
           <input type="time" value={form.startTime} onChange={(e) => handleStartChange(e.target.value)}
             className={FIELD_CLASS} />
         </Field>
-        <Field label={isMorning ? "End (start + 2h, 固定)" : "End"}>
+        <Field label={isFixedDuration ? "End (start + 2h, 固定)" : "End"}>
           <input
             type="time"
             value={form.endTime}
             onChange={(e) => setForm({ ...form, endTime: e.target.value })}
-            disabled={isMorning}
-            title={isMorning ? `${MORNING_PROGRAM} は 2 時間枠固定` : undefined}
-            className={`${FIELD_CLASS} ${isMorning ? "opacity-60 cursor-not-allowed" : ""}`}
+            disabled={isFixedDuration}
+            title={isFixedDuration ? `${form.program} は 2 時間枠固定` : undefined}
+            className={`${FIELD_CLASS} ${isFixedDuration ? "opacity-60 cursor-not-allowed" : ""}`}
           />
         </Field>
         <Field label="Timezone">
