@@ -157,6 +157,24 @@ export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
       () => (window as unknown as { __thumbnailReady?: boolean }).__thumbnailReady === true,
       { timeout: 25_000 },
     );
+    // 全ての <img> が complete (decoded) になるまで待つ. bgLoaded 8s hard
+    // fallback で onLoad 前に thumbnailReady になっても、screenshot 時に画像が
+    // 読み終わってないと空 img → 背景に黒 (container bg) が抜けてしまうのを防ぐ.
+    await page.evaluate(async () => {
+      const imgs = Array.from(document.querySelectorAll("img"));
+      await Promise.all(
+        imgs.map((img) => {
+          if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+          return new Promise<void>((resolve) => {
+            const done = () => { img.removeEventListener("load", done); img.removeEventListener("error", done); resolve(); };
+            img.addEventListener("load", done);
+            img.addEventListener("error", done);
+            // hard cap 5s 一枚あたり
+            setTimeout(done, 5000);
+          });
+        }),
+      );
+    });
     const png = await page.screenshot({ type: "png", omitBackground: false });
     return Buffer.from(png);
   } finally {
