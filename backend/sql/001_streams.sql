@@ -8,15 +8,18 @@ CREATE TABLE IF NOT EXISTS stream_programs (
 );
 
 INSERT INTO stream_programs (name, overlay_path, description) VALUES
-  ('chat:morning', '/default', 'Morning chat'),
-  ('chat:afternoon', '/default', 'Afternoon chat'),
-  ('chat:evening', '/default', 'Evening chat'),
-  ('chat:golden', '/default', 'Golden time chat'),
-  ('chat:goodnight', '/default', 'Goodnight chat'),
-  ('info:morning', '/info', 'Morning info'),
-  ('info:noon', '/info', 'Noon info'),
-  ('market:report', '/market', 'Market report')
-ON CONFLICT (name) DO NOTHING;
+  ('chat:morning',   '/default',       'Morning chat'),
+  ('chat:afternoon', '/default',       'Afternoon chat'),
+  ('chat:evening',   '/default',       'Evening chat'),
+  ('chat:golden',    '/default',       'Golden time chat'),
+  ('chat:goodnight', '/default',       'Goodnight chat'),
+  ('info:morning',   '/info/morning',  'Morning info'),
+  ('info:noon',      '/info/noon',     'Noon info'),
+  ('info:evening',   '/info/evening',  'Evening info'),
+  ('market:report',  '/market',        'Market report')
+ON CONFLICT (name) DO UPDATE SET
+  overlay_path = EXCLUDED.overlay_path,
+  description  = EXCLUDED.description;
 
 -- Stream schedules (repeat rules)
 CREATE TABLE IF NOT EXISTS stream_schedules (
