@@ -184,6 +184,7 @@ interface RawScheduleRow {
   program: string;
   label: string;
   title: string;
+  intent: string;
   enabled: boolean;
   overlay_path?: string | null;
   [k: string]: unknown;
@@ -198,6 +199,7 @@ interface MaterializedSlot {
   program: string;
   label: string;
   title: string;
+  intent: string;
   enabled: boolean;
   overlay_path: string | null;
   timezone: string;
@@ -224,7 +226,7 @@ function materializeSchedules(rows: RawScheduleRow[], date: string): Materialize
       onceSlots.push({
         id: r.id, channel: r.channel, repeat_type: "once",
         starts_at: startsIso, ends_at: endsIso,
-        program: r.program, label: r.label, title: r.title, enabled: r.enabled,
+        program: r.program, label: r.label, title: r.title, intent: r.intent ?? "", enabled: r.enabled,
         overlay_path: (r.overlay_path as string | null) ?? null,
         timezone: r.timezone,
       });
@@ -244,7 +246,7 @@ function materializeSchedules(rows: RawScheduleRow[], date: string): Materialize
     recurringSlots.push({
       id: r.id, channel: r.channel, repeat_type: r.repeat_type,
       starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(),
-      program: r.program, label: r.label, title: r.title, enabled: r.enabled,
+      program: r.program, label: r.label, title: r.title, intent: r.intent ?? "", enabled: r.enabled,
       overlay_path: (r.overlay_path as string | null) ?? null,
       timezone: r.timezone,
     });
