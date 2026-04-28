@@ -1,27 +1,32 @@
--- Initial daily schedule seed. Disabled for now.
--- Idempotent: skips if (channel, repeat_type='daily', start_minutes, program) already exists.
+-- 既定 daily スケジュールを seed する.
+--
+-- start_time / end_time + timezone で recurring を表現 (009 で minute-of-day
+-- ベース廃止済). channel + start_time + program で重複弾く.
+-- すべて Asia/Tokyo 基準 (EN ch も JST で時刻指定する運用).
+--
+-- 内訳:
+--   ja  daily 07:00-09:00 info:morning   朝の情報番組
+--   ja  daily 11:00-13:00 info:noon      お昼情報番組
+--   ja  daily 19:00-21:00 chat:golden    夜の雑談タイム
+--   en  daily 21:00-23:00 info:morning   Morning Stream (JST eve = US morning)
+--   en  daily 02:00-04:00 info:noon      Noon Stream    (JST 深夜 = US 昼)
+--   en  daily 09:00-11:00 chat:golden    Evening Chat   (JST 朝 = US 夜)
 
-/*
-INSERT INTO stream_schedules (channel, repeat_type, start_minutes, end_minutes, program, label, enabled)
+INSERT INTO stream_schedules (channel, repeat_type, repeat_days, start_time, end_time, timezone, program, label, title, enabled)
 SELECT * FROM (VALUES
   -- JA
-  ('ja', 'daily',  6 * 60,        8 * 60,       'info:morning',   '朝の情報番組',       TRUE),
-  ('ja', 'daily', 11 * 60,       13 * 60,       'info:noon',      'お昼情報番組',       TRUE),
-  ('ja', 'daily', 14 * 60,       16 * 60 + 55,  'chat:afternoon', '午後配信',           TRUE),
-  ('ja', 'daily', 17 * 60,       18 * 60 + 55,  'chat:evening',   'よる配信',           TRUE),
-  ('ja', 'daily', 19 * 60,       21 * 60 + 55,  'chat:golden',    'ゴールデンタイム',   TRUE),
-  ('ja', 'daily', 22 * 60,       23 * 60 + 55,  'market:report',  '相場情報番組',       TRUE),
-  ('ja', 'daily', 24 * 60,       25 * 60,       'chat:goodnight', 'おやすみ配信',       TRUE),
-  -- EN
-  ('en', 'daily',  8 * 60,       11 * 60,       'chat:golden',    'US Golden Time',     TRUE),
-  ('en', 'daily', 13 * 60,       14 * 60,       'chat:goodnight', 'Goodnight Stream',   TRUE),
-  ('en', 'daily', 22 * 60,       24 * 60,       'market:report',  'Market Report',      TRUE)
-) AS v(channel, repeat_type, start_minutes, end_minutes, program, label, enabled)
+  ('ja', 'daily', '{}'::int[], '07:00'::time, '09:00'::time, 'Asia/Tokyo', 'info:morning', '朝の情報番組',     '', TRUE),
+  ('ja', 'daily', '{}'::int[], '11:00'::time, '13:00'::time, 'Asia/Tokyo', 'info:noon',    'お昼情報番組',     '', TRUE),
+  ('ja', 'daily', '{}'::int[], '19:00'::time, '21:00'::time, 'Asia/Tokyo', 'chat:golden',  '夜の雑談タイム',   '', TRUE),
+  -- EN (時刻は JST 表記、内部 timezone も Asia/Tokyo で統一)
+  ('en', 'daily', '{}'::int[], '21:00'::time, '23:00'::time, 'Asia/Tokyo', 'info:morning', 'Morning Stream',   '', TRUE),
+  ('en', 'daily', '{}'::int[], '02:00'::time, '04:00'::time, 'Asia/Tokyo', 'info:noon',    'Noon Stream',      '', TRUE),
+  ('en', 'daily', '{}'::int[], '09:00'::time, '11:00'::time, 'Asia/Tokyo', 'chat:golden',  'Evening Chat',     '', TRUE)
+) AS v(channel, repeat_type, repeat_days, start_time, end_time, timezone, program, label, title, enabled)
 WHERE NOT EXISTS (
   SELECT 1 FROM stream_schedules s
   WHERE s.channel = v.channel
     AND s.repeat_type = v.repeat_type
-    AND s.start_minutes = v.start_minutes
+    AND s.start_time = v.start_time
     AND s.program = v.program
 );
-*/
