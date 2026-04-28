@@ -27,6 +27,8 @@ interface ScheduleBody {
   program?: string;
   label?: string;
   title?: string;
+  /** YUNA's intent for this stream slot. Free text used by stream director / talker. */
+  intent?: string;
   enabled?: boolean;
 }
 
@@ -46,10 +48,10 @@ router.post("/", async (req: Request, res: Response) => {
     }
     const result = await query(
       `INSERT INTO stream_schedules
-         (channel, repeat_type, repeat_days, starts_at, ends_at, timezone, program, label, title)
-       VALUES ($1, 'once', '{}', $2::timestamptz, $3::timestamptz, $4, $5, $6, $7)
+         (channel, repeat_type, repeat_days, starts_at, ends_at, timezone, program, label, title, intent)
+       VALUES ($1, 'once', '{}', $2::timestamptz, $3::timestamptz, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [b.channel, b.startsAt, b.endsAt, b.timezone ?? "Asia/Tokyo", b.program, b.label, b.title ?? ""],
+      [b.channel, b.startsAt, b.endsAt, b.timezone ?? "Asia/Tokyo", b.program, b.label, b.title ?? "", b.intent ?? ""],
     );
     res.json({ ok: true, schedule: result.rows[0] });
     return;
@@ -62,8 +64,8 @@ router.post("/", async (req: Request, res: Response) => {
   }
   const result = await query(
     `INSERT INTO stream_schedules
-       (channel, repeat_type, repeat_days, start_time, end_time, timezone, program, label, title)
-     VALUES ($1, $2, $3, $4::time, $5::time, $6, $7, $8, $9)
+       (channel, repeat_type, repeat_days, start_time, end_time, timezone, program, label, title, intent)
+     VALUES ($1, $2, $3, $4::time, $5::time, $6, $7, $8, $9, $10)
      RETURNING *`,
     [
       b.channel,
@@ -75,6 +77,7 @@ router.post("/", async (req: Request, res: Response) => {
       b.program,
       b.label,
       b.title ?? "",
+      b.intent ?? "",
     ],
   );
   res.json({ ok: true, schedule: result.rows[0] });
@@ -100,10 +103,11 @@ router.put("/:id", async (req: Request, res: Response) => {
          program     = COALESCE($9, program),
          label       = COALESCE($10, label),
          title       = COALESCE($11, title),
-         enabled     = COALESCE($12, enabled),
-         ends_on     = CASE WHEN $14::boolean THEN $13::date ELSE ends_on END,
+         intent      = COALESCE($12, intent),
+         enabled     = COALESCE($13, enabled),
+         ends_on     = CASE WHEN $15::boolean THEN $14::date ELSE ends_on END,
          updated_at  = NOW()
-     WHERE id = $15
+     WHERE id = $16
      RETURNING *`,
     [
       b.channel ?? null,
@@ -117,6 +121,7 @@ router.put("/:id", async (req: Request, res: Response) => {
       b.program ?? null,
       b.label ?? null,
       b.title ?? null,
+      b.intent ?? null,
       b.enabled ?? null,
       b.endsOn ?? null,
       endsOnProvided,
