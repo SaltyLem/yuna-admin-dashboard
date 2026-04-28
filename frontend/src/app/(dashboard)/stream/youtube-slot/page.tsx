@@ -153,8 +153,9 @@ export default function YouTubeSlotPage(): React.JSX.Element {
         Each switch creates a new broadcast (titles/description from template) bound to the
         same reusable stream — broadcaster keeps pushing the same RTMP key forever.
       </p>
-      <p className="text-sm mb-6">
+      <p className="text-sm mb-6 flex gap-4">
         <a href="/stream/youtube-slot/thumbnail" className="text-cyan-400 underline">→ Thumbnail Lab</a>
+        <a href="/stream/youtube-slot/calendar" className="text-cyan-400 underline">→ Thumbnail Calendar</a>
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

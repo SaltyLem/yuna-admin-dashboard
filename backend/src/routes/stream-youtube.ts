@@ -22,6 +22,7 @@ import crypto from "crypto";
 import { Redis } from "ioredis";
 import { query } from "../db/client.js";
 import { generateSwitchBackground, pickSwitchExpression, renderThumbnailPng } from "./stream-youtube-thumbnail.js";
+import { getReservedThumbnailUrl } from "./stream-youtube-thumbnail-schedule.js";
 
 const router = Router();
 
@@ -460,13 +461,29 @@ router.post("/switch", async (req: Request, res: Response) => {
       [channel, broadcast.id, stream.stream_id, fullRtmpUrl, stream.ingest_address, stream.stream_key, broadcast.snippet.title],
     );
 
-    // サムネ: 5 種からランダム表情 + fal flux-pro で背景を当日 1 枚生成.
-    // 同日 ja/en は同じ背景を使う (キャッシュ). 背景失敗時は overlay の
-    // デフォルト動画背景を使う. best-effort.
+    // サムネアップロード:
+    //   1. 当日 (channel) に予約があれば、その R2 URL から PNG を fetch して
+    //      そのまま YouTube thumbnails.set に upload (render skip).
+    //   2. 予約なし → 5 表情ランダム + fal 背景で render → upload (fallback).
+    // best-effort: 失敗しても broadcast は live のまま続行.
     try {
-      const expr = pickSwitchExpression();
-      const bgUrl = await generateSwitchBackground();
-      const png = await renderThumbnailPng({ channel, expr, tod: "day", bg: bgUrl ?? undefined });
+      const reserved = await getReservedThumbnailUrl(channel);
+      let png: Buffer;
+      let source: string;
+      if (reserved) {
+        const r = await fetch(reserved, { signal: AbortSignal.timeout(30_000) });
+        if (!r.ok) throw new Error(`reserved fetch ${r.status}`);
+        png = Buffer.from(await r.arrayBuffer());
+        source = `reserved (${reserved})`;
+      } else {
+        const expr = pickSwitchExpression();
+        const bgUrl = await generateSwitchBackground();
+        png = await renderThumbnailPng({ channel, expr, tod: "day", bg: bgUrl ?? undefined });
+        source = `rendered (expr=${expr}, bg=${bgUrl ? "fal" : "default"})`;
+      }
+      // PNG upload to YouTube. R2 から拾った画像は jpeg/webp の可能性もあるが
+      // YouTube は image/png でも image/jpeg でも受けるので Content-Type を雑に
+      // 指定 (中身が PNG マジックでなければ拒否される).
       const upRes = await fetch(
         `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${broadcast.id}`,
         {
@@ -479,10 +496,10 @@ router.post("/switch", async (req: Request, res: Response) => {
         const errText = await upRes.text();
         console.warn(`[switch:${channel}] thumbnail upload failed (${upRes.status}): ${errText.slice(0, 300)}`);
       } else {
-        console.log(`[switch:${channel}] ✓ thumbnail uploaded (expr=${expr}, bg=${bgUrl ? "fal" : "default"})`);
+        console.log(`[switch:${channel}] ✓ thumbnail uploaded — ${source}`);
       }
     } catch (err) {
-      console.warn(`[switch:${channel}] thumbnail render/upload error:`, err instanceof Error ? err.message : String(err));
+      console.warn(`[switch:${channel}] thumbnail flow error:`, err instanceof Error ? err.message : String(err));
     }
 
     // Notify (broadcaster can ignore — RTMP key didn't change)

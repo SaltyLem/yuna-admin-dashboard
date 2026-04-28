@@ -146,7 +146,7 @@ function buildOverlayUrl(q: RenderQuery, opts?: { staticChar?: boolean }): strin
 export async function renderThumbnailPng(q: RenderQuery): Promise<Buffer> {
   const browser = await getBrowser();
   const page = await browser.newPage();
-  page.on("pageerror", (err) => console.log("[thumb-page:pageerror]", err.message));
+  page.on("pageerror", (err) => console.log("[thumb-page:pageerror]", err instanceof Error ? err.message : String(err)));
   page.on("requestfailed", (req) =>
     console.log("[thumb-page:reqfail]", req.url(), req.failure()?.errorText));
   try {
