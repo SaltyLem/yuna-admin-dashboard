@@ -207,7 +207,8 @@ interface MaterializedSlot {
 }
 
 function materializeSchedules(rows: RawScheduleRow[], date: string): MaterializedSlot[] {
-  const onceHits = new Set<string>(); // `${channel}` that has a once slot on this date.
+  // channel ごとの once slot 時刻範囲 (overlap 判定用).
+  const onceRangesByChannel = new Map<string, Array<{ startMs: number; endMs: number }>>();
   const onceSlots: MaterializedSlot[] = [];
   const recurringSlots: MaterializedSlot[] = [];
 
@@ -223,7 +224,9 @@ function materializeSchedules(rows: RawScheduleRow[], date: string): Materialize
       const startMs = new Date(r.starts_at).getTime();
       const endMs = new Date(r.ends_at).getTime();
       if (endMs <= dayStart || startMs >= dayEnd) continue;
-      onceHits.add(r.channel);
+      const list = onceRangesByChannel.get(r.channel) ?? [];
+      list.push({ startMs, endMs });
+      onceRangesByChannel.set(r.channel, list);
       onceSlots.push({
         id: r.id, channel: r.channel, repeat_type: "once",
         starts_at: startsIso, ends_at: endsIso,
@@ -253,8 +256,20 @@ function materializeSchedules(rows: RawScheduleRow[], date: string): Materialize
     });
   }
 
-  // 同 channel + date に once があったら recurring を drop
-  const filteredRecurring = recurringSlots.filter((s) => !onceHits.has(s.channel));
+  // 同 channel に once があり、かつ once と「時刻範囲が重なる」recurring だけ drop.
+  // 旧仕様: 同 channel に once があれば終日 recurring 全消し → 24min の once が
+  // 24h 分の daily を消す問題があった.
+  const filteredRecurring = recurringSlots.filter((s) => {
+    const ranges = onceRangesByChannel.get(s.channel);
+    if (!ranges || ranges.length === 0) return true;
+    const recStart = new Date(s.starts_at).getTime();
+    const recEnd = new Date(s.ends_at).getTime();
+    for (const o of ranges) {
+      // [recStart, recEnd) と [o.startMs, o.endMs) が交差?
+      if (recStart < o.endMs && o.startMs < recEnd) return false;
+    }
+    return true;
+  });
   return [...onceSlots, ...filteredRecurring].sort((a, b) =>
     a.channel < b.channel ? -1 : a.channel > b.channel ? 1 : a.starts_at < b.starts_at ? -1 : 1,
   );
