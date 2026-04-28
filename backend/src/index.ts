@@ -538,7 +538,50 @@ server.listen(PORT, () => {
 
 initSqlite();
 
-initDb().catch((err) => console.error("[db] init failed:", err.message));
+initDb()
+  .then(() => bootstrapYouTubeCredentialsFromEnv())
+  .catch((err) => console.error("[db] init failed:", err.message));
+
+/**
+ * env に YOUTUBE_{JA,EN}_REFRESH_TOKEN 等が定義されてて、DB の
+ * stream_youtube_credentials に該当 channel の row が無い場合に seed する.
+ * DB リセット後に毎回 OAuth flow をやり直さなくて済むようにするための bootstrap.
+ *
+ * 必要な env:
+ *   YOUTUBE_OAUTH_CLIENT_ID / YOUTUBE_OAUTH_CLIENT_SECRET (両 channel 共通)
+ *   YOUTUBE_{JA|EN}_REFRESH_TOKEN
+ *   YOUTUBE_{JA|EN}_CHANNEL_ID
+ *   YOUTUBE_{JA|EN}_CHANNEL_TITLE
+ */
+async function bootstrapYouTubeCredentialsFromEnv(): Promise<void> {
+  const clientId = process.env["YOUTUBE_OAUTH_CLIENT_ID"];
+  const clientSecret = process.env["YOUTUBE_OAUTH_CLIENT_SECRET"];
+  if (!clientId || !clientSecret) return;
+  const channels = ["ja", "en"] as const;
+  for (const ch of channels) {
+    const upper = ch.toUpperCase();
+    const refresh = process.env[`YOUTUBE_${upper}_REFRESH_TOKEN`];
+    const channelId = process.env[`YOUTUBE_${upper}_CHANNEL_ID`];
+    const channelTitle = process.env[`YOUTUBE_${upper}_CHANNEL_TITLE`];
+    if (!refresh || !channelId || !channelTitle) continue;
+    try {
+      const r = await query(
+        "SELECT 1 FROM stream_youtube_credentials WHERE channel = $1",
+        [ch],
+      );
+      if (r.rows.length > 0) continue;
+      await query(
+        `INSERT INTO stream_youtube_credentials
+           (channel, refresh_token, client_id, client_secret, channel_id, channel_title)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [ch, refresh, clientId, clientSecret, channelId, channelTitle],
+      );
+      console.log(`[init] seeded YouTube credentials for ${ch} from env (${channelTitle})`);
+    } catch (err) {
+      console.warn(`[init] bootstrap ${ch} failed:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+}
 
 startRedisSubscriber().catch((err) => {
   console.error("[redis-sub] failed to start:", err.message);
