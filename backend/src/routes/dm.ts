@@ -12,10 +12,14 @@ router.post("/", async (req: Request, res: Response) => {
     res.json(result);
   } catch (err) {
     if (err instanceof YunaApiError) {
-      res.status(err.status).json({ error: err.message, body: err.body });
+      // upstream の JSON body をそのまま forward (debug 情報の env / twitter* を保持)
+      const body = (err.body && typeof err.body === "object")
+        ? err.body as Record<string, unknown>
+        : { error: err.message };
+      res.status(err.status).json(body);
     } else {
       console.error("[dm] upstream error:", err instanceof Error ? err.message : err);
-      res.status(502).json({ error: "Upstream error" });
+      res.status(502).json({ error: "Upstream error", message: err instanceof Error ? err.message : String(err) });
     }
   }
 });

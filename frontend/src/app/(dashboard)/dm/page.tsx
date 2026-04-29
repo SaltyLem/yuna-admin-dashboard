@@ -31,8 +31,10 @@ export default function DmPage() {
       setText("");
     } catch (e) {
       if (e instanceof ApiError) {
-        const body = e.body as { error?: string; message?: string } | null;
-        setError(body?.message ?? body?.error ?? e.message);
+        const body = e.body as Record<string, unknown> | null;
+        const headline = (body?.message as string | undefined) ?? (body?.error as string | undefined) ?? e.message;
+        const detail = body ? "\n" + JSON.stringify(body, null, 2) : "";
+        setError(headline + detail);
       } else {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -103,9 +105,9 @@ export default function DmPage() {
         </div>
       )}
       {error && (
-        <div className="rounded border border-red-700 bg-red-950/40 p-3 text-sm text-red-300">
+        <pre className="whitespace-pre-wrap rounded border border-red-700 bg-red-950/40 p-3 text-xs text-red-300">
           ✗ {error}
-        </div>
+        </pre>
       )}
     </div>
   );
