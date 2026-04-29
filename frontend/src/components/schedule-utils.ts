@@ -66,6 +66,12 @@ export interface SlotInstance {
 export function slotInstanceForDate(s: Schedule, dateStr: string): SlotInstance | null {
   if (!s.enabled) return null;
   if (s.ends_on && s.ends_on.slice(0, 10) < dateStr) return null;
+  // recurring の有効開始日下限. starts_at が未来 (or 今日 == dateStr 以降) なら表示しない.
+  // 「今日より前を削除」(starts_at = 今日) で過去日付の枠が表示から消える要件.
+  if (s.starts_at && s.repeat_type !== "once") {
+    const startDay = formatInTz(s.starts_at, s.timezone || "Asia/Tokyo").date;
+    if (startDay > dateStr) return null;
+  }
 
   if (s.repeat_type === "once") {
     if (!s.starts_at || !s.ends_at) return null;
