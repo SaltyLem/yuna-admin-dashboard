@@ -553,14 +553,15 @@ function DeleteRecurringContent({ schedule, onDone }: { schedule: Schedule; onDo
   };
 
   const dropPast = async () => {
-    // recurring の starts_at を「今日」にして、それより前の発生対象を切る.
-    // ends_on は触らない (今日以降は継続).
+    // 「今日以前を削除」= 今日 (4/30) を含めて 4/30 以前を hide、明日 (5/1) 以降のみ残す.
+    // recurring の starts_at を「明日 0:00」にして、それより前の発生対象を切る.
+    // ends_on は触らない (明日以降は継続).
     try {
       const now = new Date();
-      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const tomorrowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
       await apiFetch(`/schedules/${schedule.id}`, {
         method: "PUT",
-        body: JSON.stringify({ startsAt: todayMidnight.toISOString() }),
+        body: JSON.stringify({ startsAt: tomorrowMidnight.toISOString() }),
       });
     } catch { return; }
     onDone();
@@ -590,8 +591,8 @@ function DeleteRecurringContent({ schedule, onDone }: { schedule: Schedule; onDo
           onClick={dropPast}
           className="text-left px-4 py-3 rounded-lg border border-border hover:bg-panel-hover transition"
         >
-          <div className="text-sm font-medium text-text">今日より前を削除</div>
-          <div className="text-xs text-text-muted mt-0.5">今日以降の繰り返しは継続（startsAt を今日に）</div>
+          <div className="text-sm font-medium text-text">今日以前を削除</div>
+          <div className="text-xs text-text-muted mt-0.5">今日も含めて hide、明日以降の繰り返しのみ継続</div>
         </button>
         <button
           onClick={removeAll}
