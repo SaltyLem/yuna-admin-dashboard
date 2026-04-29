@@ -240,6 +240,12 @@ function materializeSchedules(rows: RawScheduleRow[], date: string): Materialize
 
     // daily / weekly
     if (!r.start_time || !r.end_time) continue;
+    // recurring の有効開始日下限。starts_at が設定されてる場合、その tz 暦日より前は出さない。
+    // (admin UI の「今日以前を削除」でこの値が翌日 00:00 に立つ)
+    if (r.starts_at) {
+      const startDay = dateInTz(new Date(r.starts_at), r.timezone);
+      if (startDay > date) continue;
+    }
     if (r.repeat_type === "weekly") {
       const dow = dowInTz(date, r.timezone);
       if (!(r.repeat_days ?? []).includes(dow)) continue;
