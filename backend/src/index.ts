@@ -22,6 +22,7 @@ import stateRoutes from "./routes/state.js";
 import pendingActionsRoutes from "./routes/pending-actions.js";
 import cycleBlocksRoutes from "./routes/cycle-blocks.js";
 import apiUsageRoutes from "./routes/api-usage.js";
+import dmRoutes from "./routes/dm.js";
 import dockerLogsRoutes from "./routes/docker-logs.js";
 import ttsReadingRulesRoutes from "./routes/tts-reading-rules.js";
 import announcementsRoutes from "./routes/announcements.js";
@@ -347,6 +348,7 @@ app.use("/state", stateRoutes);
 app.use("/pending-actions", pendingActionsRoutes);
 app.use("/cycle-blocks", cycleBlocksRoutes);
 app.use("/api-usage", apiUsageRoutes);
+app.use("/dm", dmRoutes);
 
 // ── Ollama proxy ──
 const OLLAMA_URL = process.env["OLLAMA_URL"] ?? "http://192.168.11.17:11434";

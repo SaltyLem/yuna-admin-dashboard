@@ -127,6 +127,7 @@ export const NAV: NavItem[] = [
     ],
   },
   { href: "/announcements", label: "Announcements", icon: <MegaphoneIcon /> },
+  { href: "/dm", label: "DM Sender", icon: <MegaphoneIcon /> },
   {
     href: "/video",
     label: "Video",
