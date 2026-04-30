@@ -502,10 +502,20 @@ router.post("/switch", async (req: Request, res: Response) => {
       console.warn(`[switch:${channel}] thumbnail flow error:`, err instanceof Error ? err.message : String(err));
     }
 
-    // Notify (broadcaster can ignore — RTMP key didn't change)
+    // Notify generic listeners (logs, future consumers)
     await getRedisPub().publish(
       "stream:rtmp-switch",
       JSON.stringify({ channel, broadcast_id: broadcast.id, rtmp_url: fullRtmpUrl }),
+    );
+
+    // Tell the broadcaster to reconnect its ffmpeg push.
+    // Required because EXTRA_RTMP_URL (pump.fun) puts YouTube behind tee with
+    // onfail=ignore, swallowing the YouTube TCP drop on broadcast rotation —
+    // without an explicit signal the new YouTube broadcast sits in "waiting".
+    // See yuna-stream/broadcaster/server.py:reconnect_rtmp.
+    await getRedisPub().publish(
+      `stream:broadcast:${channel}:command`,
+      JSON.stringify({ action: "rtmp_reconnect" }),
     );
 
     res.json({
