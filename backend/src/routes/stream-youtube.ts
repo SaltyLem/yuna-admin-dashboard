@@ -825,6 +825,21 @@ router.post("/golive", async (req: Request, res: Response) => {
       };
     }
 
+    // 順序が重要: 先に broadcaster へ rtmp_reconnect publish して ffmpeg を
+    // 'both' mode で起動 (= YouTube への push を開始) → YouTube stream が
+    // "active" になるのを少し待つ → bind + transition→live.
+    //
+    // 旧版は bind→transition→reconnect の順で、transition retry 中はまだ
+    // broadcaster が pump_only mode (or 停止中) で YouTube に push してないため
+    // stream inactive → 6 retry すべて失敗 → broadcast が "ready" のまま
+    // 「配信待ち」状態で固まる bug があった.
+    await publishBroadcasterCommand(channel, "rtmp_reconnect");
+
+    // ffmpeg restart + YouTube が最初の frames を受け取って stream を active と
+    // 認識するまでの遅延. 経験的に 3-5 秒. transition retry が後段で 12 秒
+    // 試すので、ここはほどほどで OK.
+    await new Promise((r) => setTimeout(r, 4000));
+
     await bindBroadcastToStream({
       accessToken,
       broadcastId: row.broadcast_id,
@@ -841,8 +856,6 @@ router.post("/golive", async (req: Request, res: Response) => {
       "stream:rtmp-switch",
       JSON.stringify({ channel, broadcast_id: row.broadcast_id, rtmp_url: row.rtmp_url }),
     );
-    // broadcaster 側に YouTube tee を有効化させる (en は both mode、ja は ffmpeg start).
-    await publishBroadcasterCommand(channel, "rtmp_reconnect");
 
     res.json({
       ok: true,
