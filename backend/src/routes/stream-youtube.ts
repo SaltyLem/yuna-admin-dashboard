@@ -487,9 +487,12 @@ async function uploadThumbnailForBroadcast(args: {
   broadcastId: string;
   accessToken: string;
   program?: string | null;     // info:morning / info:noon / chat:* etc.
+  scheduleId?: number | null;  // 該当 schedule row id (= 番組枠). 指定があれば
+                               //  schedule-specific サムネを最優先で使う.
+  slotDate?: string | null;    // YYYY-MM-DD (JST). schedule-specific lookup 用.
 }): Promise<void> {
   try {
-    const reserved = await getReservedThumbnailUrl(args.channel);
+    const reserved = await getReservedThumbnailUrl(args.channel, args.scheduleId ?? null, args.slotDate ?? null);
     let png: Buffer;
     let source: string;
     if (reserved) {
@@ -638,13 +641,15 @@ router.post("/switch", async (req: Request, res: Response) => {
 // scheduler が prep の N 分前に呼ぶ. watch_url を確定させて DB に書くだけ.
 // 実 live 化は /golive で行う.
 router.post("/reserve", async (req: Request, res: Response) => {
-  const { channel, scheduledStartTime, title, description, privacyStatus, program } = (req.body ?? {}) as {
+  const { channel, scheduledStartTime, title, description, privacyStatus, program, scheduleId, slotDate } = (req.body ?? {}) as {
     channel?: unknown;
     scheduledStartTime?: string;
     title?: string;
     description?: string;
     privacyStatus?: string;
     program?: string;
+    scheduleId?: number;
+    slotDate?: string;
   };
   if (!isChannel(channel)) {
     res.status(400).json({ error: "Invalid channel" });
@@ -689,7 +694,15 @@ router.post("/reserve", async (req: Request, res: Response) => {
     await markBroadcastStatus(channel, "reserved");
     // サムネ upload は ここで完結させる (= prep 開始時には完了済みの状態を作る).
     // program (info:morning / info:noon / chat:*) で preset と bg theme が切り替わる.
-    await uploadThumbnailForBroadcast({ channel, broadcastId: broadcast.id, accessToken, program });
+    // scheduleId+slotDate があれば schedule-specific override をまず参照する.
+    await uploadThumbnailForBroadcast({
+      channel,
+      broadcastId: broadcast.id,
+      accessToken,
+      program,
+      scheduleId: scheduleId ?? null,
+      slotDate: slotDate ?? null,
+    });
 
     res.json({
       ok: true,
