@@ -211,7 +211,28 @@ router.put("/template/:channel", async (req: Request, res: Response) => {
 const WEEKDAYS_JA = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"];
 const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-function applyTemplate(tpl: string, channel: Channel): string {
+/** Program (info:morning / info:noon / chat:* etc) → 日本語/英語の枠ラベル.
+ *  タイトル先頭の【】内に入れる用. 未知 program は雑談扱い. */
+function programToLabel(program: string | null | undefined, channel: Channel): string {
+  const p = program ?? "";
+  const map: Record<string, { ja: string; en: string }> = {
+    "info:morning":  { ja: "モーニングライブ", en: "Morning Live" },
+    "info:noon":     { ja: "昼ライブ",         en: "Noon Live" },
+    "info:evening":  { ja: "夜ライブ",         en: "Evening Live" },
+    "market:report": { ja: "マーケット",       en: "Market" },
+  };
+  const entry = map[p];
+  if (entry) return entry[channel];
+  // chat:* ファミリ + 未知 program は "雑談" 扱い.
+  return channel === "ja" ? "雑談" : "Chat";
+}
+
+interface TemplateContext {
+  slotTitle?: string;
+  program?: string;
+}
+
+function applyTemplate(tpl: string, channel: Channel, ctx: TemplateContext = {}): string {
   const now = new Date();
   // JST output (UTC+9). Server timezone may vary so format manually.
   const jst = new Date(now.getTime() + 9 * 60 * 60_000);
@@ -224,11 +245,15 @@ function applyTemplate(tpl: string, channel: Channel): string {
   const date = `${yyyy}/${mm}/${dd}`;
   const time = `${hh}:${mi}`;
   const weekday = (channel === "ja" ? WEEKDAYS_JA : WEEKDAYS_EN)[dow];
+  const programLabel = programToLabel(ctx.program, channel);
+  const slotTitle = ctx.slotTitle ?? "";
   return tpl
     .replaceAll("{date}", date)
     .replaceAll("{time}", time)
     .replaceAll("{weekday}", weekday)
-    .replaceAll("{datetime}", `${date} ${time}`);
+    .replaceAll("{datetime}", `${date} ${time}`)
+    .replaceAll("{program_label}", programLabel)
+    .replaceAll("{title}", slotTitle);
 }
 
 async function getTemplate(channel: Channel): Promise<Template | null> {
@@ -544,15 +569,28 @@ async function publishBroadcasterCommand(channel: Channel, action: string): Prom
   );
 }
 
+/** タイトル / description を解決する.
+ *  優先順位:
+ *   1. override.title / override.description が文字列で来てればそれ
+ *   2. テンプレート (admin で設定) があればそれを apply
+ *   3. デフォルト fallback: 【枠ラベル】slotTitle【自律仮想生命YUNA】
+ *  テンプレートには {date} {time} {weekday} {datetime} {program_label} {title} が使える. */
 function resolveTitleAndDescription(
   channel: Channel,
   override: { title?: string; description?: string },
   tpl: Template | null,
+  ctx: TemplateContext = {},
 ): { title: string; description: string } {
+  // 既定テンプレ. ja/en で分ける. {program_label} と {title} を埋めれば
+  //  「【モーニングライブ】今日の市場ハイライト【自律仮想生命YUNA】」のような形になる.
+  const defaultTitleTpl = channel === "ja"
+    ? "【{program_label}】{title}【自律仮想生命YUNA】"
+    : "【{program_label}】{title}【Autonomous Virtual Life YUNA】";
+
   const title = override.title
-    ?? (tpl?.title_template ? applyTemplate(tpl.title_template, channel) : `YUNA Live ${new Date().toISOString().slice(0, 10)}`);
+    ?? applyTemplate(tpl?.title_template ?? defaultTitleTpl, channel, ctx);
   const description = override.description
-    ?? (tpl?.description_template ? applyTemplate(tpl.description_template, channel) : "");
+    ?? (tpl?.description_template ? applyTemplate(tpl.description_template, channel, ctx) : "");
   return { title: title.slice(0, 100), description };
 }
 
@@ -577,7 +615,10 @@ router.post("/switch", async (req: Request, res: Response) => {
     return;
   }
   const tpl = await getTemplate(channel);
-  const { title: finalTitle, description: finalDescription } = resolveTitleAndDescription(channel, { title, description }, tpl);
+  // /switch (手動 / dashboard) は title 上書き優先, fallback は generic.
+  const { title: finalTitle, description: finalDescription } = resolveTitleAndDescription(
+    channel, { title, description }, tpl,
+  );
   const finalPrivacy = privacyStatus ?? "public";
 
   try {
@@ -662,7 +703,12 @@ router.post("/reserve", async (req: Request, res: Response) => {
   }
 
   const tpl = await getTemplate(channel);
-  const { title: finalTitle, description: finalDescription } = resolveTitleAndDescription(channel, { title, description }, tpl);
+  // /reserve は scheduler 経由で呼ばれる前提. body の `title` は (override ではなく)
+  // テンプレの {title} placeholder に流す素材として扱う. dashboard で「全体タイトル」
+  // を完全に override したい場合は別 endpoint or /switch を使う想定.
+  const { title: finalTitle, description: finalDescription } = resolveTitleAndDescription(
+    channel, { title: undefined, description }, tpl, { slotTitle: title, program },
+  );
   const finalPrivacy = privacyStatus ?? "public";
   const startTime = scheduledStartTime ?? new Date(Date.now() + 5 * 60_000).toISOString();
 
