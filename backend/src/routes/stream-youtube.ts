@@ -348,6 +348,186 @@ async function endActiveBroadcast(channel: Channel, accessToken: string): Promis
   ).catch(() => {});
 }
 
+// ── Lifecycle helpers (shared by /switch, /reserve, /golive, /complete) ──
+
+/** liveBroadcasts.insert. bind / transition は別関数. */
+async function createBroadcast(args: {
+  accessToken: string;
+  title: string;
+  description: string;
+  privacyStatus: string;
+  scheduledStartTime: string;
+}): Promise<{ id: string; title: string }> {
+  const auth = { Authorization: `Bearer ${args.accessToken}`, "Content-Type": "application/json" };
+  const res = await fetch(
+    "https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails",
+    {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({
+        snippet: {
+          title: args.title.slice(0, 100),
+          description: args.description,
+          scheduledStartTime: args.scheduledStartTime,
+        },
+        status: { privacyStatus: args.privacyStatus, selfDeclaredMadeForKids: false },
+        contentDetails: {
+          enableAutoStart: false,
+          enableAutoStop: false,
+          enableDvr: true,
+          monitorStream: { enableMonitorStream: false },
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to create broadcast: ${(await res.text()).slice(0, 500)}`);
+  }
+  const bc = (await res.json()) as { id: string; snippet: { title: string } };
+  return { id: bc.id, title: bc.snippet.title };
+}
+
+async function bindBroadcastToStream(args: {
+  accessToken: string;
+  broadcastId: string;
+  streamId: string;
+}): Promise<void> {
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?part=id,contentDetails&id=${args.broadcastId}&streamId=${args.streamId}`,
+    { method: "POST", headers: { Authorization: `Bearer ${args.accessToken}` } },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to bind: ${(await res.text()).slice(0, 500)}`);
+  }
+}
+
+/** stream が active になるまで再試行しながら transition→live を打つ. */
+async function transitionToLiveWithRetry(args: {
+  accessToken: string;
+  broadcastId: string;
+  channel: Channel;
+}): Promise<boolean> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const tRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/liveBroadcasts/transition?broadcastStatus=live&id=${args.broadcastId}&part=id,status`,
+      { method: "POST", headers: { Authorization: `Bearer ${args.accessToken}` } },
+    );
+    if (tRes.ok) return true;
+    const errBody = await tRes.text();
+    if (errBody.includes("redundantTransition")) return true;
+    // stream not yet active 系は retry. それ以外も attempt 切れまで黙って retry.
+    if (
+      !errBody.includes("redundantTransition") &&
+      !errBody.includes("invalidTransition") &&
+      !errBody.includes("errorStreamInactive") &&
+      attempt === 5
+    ) {
+      console.warn(`[golive:${args.channel}] transition to live failed after retries: ${errBody.slice(0, 300)}`);
+    }
+  }
+  return false;
+}
+
+async function transitionToComplete(args: {
+  accessToken: string;
+  broadcastId: string;
+}): Promise<void> {
+  await fetch(
+    `https://www.googleapis.com/youtube/v3/liveBroadcasts/transition?broadcastStatus=complete&id=${args.broadcastId}&part=id,status`,
+    { method: "POST", headers: { Authorization: `Bearer ${args.accessToken}` } },
+  ).catch(() => {});
+}
+
+async function persistBroadcastRow(args: {
+  channel: Channel;
+  broadcastId: string;
+  streamId: string;
+  ingestAddress: string;
+  streamKey: string;
+  title: string;
+}): Promise<void> {
+  const fullRtmpUrl = `${args.ingestAddress}/${args.streamKey}`;
+  await query(
+    `INSERT INTO stream_youtube_broadcasts (channel, broadcast_id, stream_id, rtmp_url, ingest_address, stream_key, title, switched_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+     ON CONFLICT (channel) DO UPDATE SET
+       broadcast_id = EXCLUDED.broadcast_id,
+       stream_id = EXCLUDED.stream_id,
+       rtmp_url = EXCLUDED.rtmp_url,
+       ingest_address = EXCLUDED.ingest_address,
+       stream_key = EXCLUDED.stream_key,
+       title = EXCLUDED.title,
+       switched_at = NOW()`,
+    [args.channel, args.broadcastId, args.streamId, fullRtmpUrl, args.ingestAddress, args.streamKey, args.title],
+  );
+}
+
+/** 当日 (channel) に予約があれば R2 から fetch、無ければ render fallback で
+ *  PNG を作って YouTube thumbnails.set に upload. best-effort で例外飲む. */
+async function uploadThumbnailForBroadcast(args: {
+  channel: Channel;
+  broadcastId: string;
+  accessToken: string;
+}): Promise<void> {
+  try {
+    const reserved = await getReservedThumbnailUrl(args.channel);
+    let png: Buffer;
+    let source: string;
+    if (reserved) {
+      const r = await fetch(reserved, { signal: AbortSignal.timeout(30_000) });
+      if (!r.ok) throw new Error(`reserved fetch ${r.status}`);
+      png = Buffer.from(await r.arrayBuffer());
+      source = `reserved (${reserved})`;
+    } else {
+      const expr = pickSwitchExpression();
+      const bgUrl = await generateSwitchBackground();
+      png = await renderThumbnailPng({ channel: args.channel, expr, tod: "day", bg: bgUrl ?? undefined });
+      source = `rendered (expr=${expr}, bg=${bgUrl ? "fal" : "default"})`;
+    }
+    const upRes = await fetch(
+      `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${args.broadcastId}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${args.accessToken}`, "Content-Type": "image/png" },
+        body: new Uint8Array(png),
+      },
+    );
+    if (!upRes.ok) {
+      const errText = await upRes.text();
+      console.warn(`[thumbnail:${args.channel}] upload failed (${upRes.status}): ${errText.slice(0, 300)}`);
+    } else {
+      console.log(`[thumbnail:${args.channel}] ✓ uploaded — ${source}`);
+    }
+  } catch (err) {
+    console.warn(`[thumbnail:${args.channel}] error:`, err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** broadcaster に command publish. action: 'rtmp_reconnect' (= YouTube tee 復活)
+ *  / 'youtube_stop' (= en は pump-only restart, ja は ffmpeg 停止). */
+async function publishBroadcasterCommand(channel: Channel, action: string): Promise<void> {
+  await getRedisPub().publish(
+    `stream:broadcast:${channel}:command`,
+    JSON.stringify({ action }),
+  );
+}
+
+function resolveTitleAndDescription(
+  channel: Channel,
+  override: { title?: string; description?: string },
+  tpl: Template | null,
+): { title: string; description: string } {
+  const title = override.title
+    ?? (tpl?.title_template ? applyTemplate(tpl.title_template, channel) : `YUNA Live ${new Date().toISOString().slice(0, 10)}`);
+  const description = override.description
+    ?? (tpl?.description_template ? applyTemplate(tpl.description_template, channel) : "");
+  return { title: title.slice(0, 100), description };
+}
+
+// ── /switch — backward-compat: create + bind + go-live + thumbnail in 1 call ──
+// 04:00 daily auto-switch を捨てる予定だが、手動 switch / dashboard 操作のため残す.
+
 router.post("/switch", async (req: Request, res: Response) => {
   const { channel, title, description, privacyStatus, endPrevious } = (req.body ?? {}) as {
     channel?: unknown;
@@ -365,158 +545,48 @@ router.post("/switch", async (req: Request, res: Response) => {
     res.status(400).json({ error: `Channel ${channel} not linked` });
     return;
   }
-
   const tpl = await getTemplate(channel);
-  const finalTitle = (title ?? (tpl?.title_template ? applyTemplate(tpl.title_template, channel) : `YUNA Live ${new Date().toISOString().slice(0, 10)}`)).slice(0, 100);
-  const finalDescription = description ?? (tpl?.description_template ? applyTemplate(tpl.description_template, channel) : "");
+  const { title: finalTitle, description: finalDescription } = resolveTitleAndDescription(channel, { title, description }, tpl);
   const finalPrivacy = privacyStatus ?? "public";
 
   try {
     const accessToken = await refreshAccessToken(creds);
-    const auth = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
-
-    // Ensure reusable stream exists
     const stream = await ensureReusableStream(channel, creds, accessToken);
 
-    // Optionally end the previous broadcast
     if (endPrevious !== false) {
       await endActiveBroadcast(channel, accessToken);
     }
 
-    // Create new broadcast. enableMonitorStream=false skips the "testing"
-    // phase so we can transition straight from ready → live. autoStart is
-    // unreliable when the stream is already pushing continuously, so we
-    // transition manually below.
+    // 1分後 scheduled. /switch は即 live 化するので scheduledStartTime はほぼ
+    // formality だが、YouTube が要求するので埋める.
     const startTime = new Date(Date.now() + 60_000).toISOString();
-    const bcRes = await fetch(
-      "https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails",
-      {
-        method: "POST",
-        headers: auth,
-        body: JSON.stringify({
-          snippet: { title: finalTitle, description: finalDescription, scheduledStartTime: startTime },
-          status: { privacyStatus: finalPrivacy, selfDeclaredMadeForKids: false },
-          contentDetails: {
-            enableAutoStart: false,
-            enableAutoStop: false,
-            enableDvr: true,
-            monitorStream: { enableMonitorStream: false },
-          },
-        }),
-      },
-    );
-    if (!bcRes.ok) {
-      res.status(500).json({ error: "Failed to create broadcast", detail: (await bcRes.text()).slice(0, 500) });
-      return;
-    }
-    const broadcast = (await bcRes.json()) as { id: string; snippet: { title: string } };
+    const broadcast = await createBroadcast({
+      accessToken,
+      title: finalTitle,
+      description: finalDescription,
+      privacyStatus: finalPrivacy,
+      scheduledStartTime: startTime,
+    });
 
-    // Bind to reusable stream
-    const bindRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?part=id,contentDetails&id=${broadcast.id}&streamId=${stream.stream_id}`,
-      { method: "POST", headers: auth },
-    );
-    if (!bindRes.ok) {
-      res.status(500).json({ error: "Failed to bind", detail: (await bindRes.text()).slice(0, 500) });
-      return;
-    }
+    await bindBroadcastToStream({ accessToken, broadcastId: broadcast.id, streamId: stream.stream_id });
+    const liveOk = await transitionToLiveWithRetry({ accessToken, broadcastId: broadcast.id, channel });
 
-    // Manually transition to live (poll until the bound stream reports active)
-    let liveOk = false;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const tRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/liveBroadcasts/transition?broadcastStatus=live&id=${broadcast.id}&part=id,status`,
-        { method: "POST", headers: auth },
-      );
-      if (tRes.ok) {
-        liveOk = true;
-        break;
-      }
-      const errBody = await tRes.text();
-      // Stream not yet active — retry. Other errors → bail out.
-      if (!errBody.includes("redundantTransition") && !errBody.includes("invalidTransition") && !errBody.includes("errorStreamInactive")) {
-        if (attempt === 5) {
-          console.warn(`[switch:${channel}] transition to live failed after retries: ${errBody.slice(0, 300)}`);
-        }
-      } else if (errBody.includes("redundantTransition")) {
-        liveOk = true;
-        break;
-      }
-    }
+    await persistBroadcastRow({
+      channel,
+      broadcastId: broadcast.id,
+      streamId: stream.stream_id,
+      ingestAddress: stream.ingest_address,
+      streamKey: stream.stream_key,
+      title: broadcast.title,
+    });
+    await uploadThumbnailForBroadcast({ channel, broadcastId: broadcast.id, accessToken });
 
     const fullRtmpUrl = `${stream.ingest_address}/${stream.stream_key}`;
-
-    await query(
-      `INSERT INTO stream_youtube_broadcasts (channel, broadcast_id, stream_id, rtmp_url, ingest_address, stream_key, title, switched_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (channel) DO UPDATE SET
-         broadcast_id = EXCLUDED.broadcast_id,
-         stream_id = EXCLUDED.stream_id,
-         rtmp_url = EXCLUDED.rtmp_url,
-         ingest_address = EXCLUDED.ingest_address,
-         stream_key = EXCLUDED.stream_key,
-         title = EXCLUDED.title,
-         switched_at = NOW()`,
-      [channel, broadcast.id, stream.stream_id, fullRtmpUrl, stream.ingest_address, stream.stream_key, broadcast.snippet.title],
-    );
-
-    // サムネアップロード:
-    //   1. 当日 (channel) に予約があれば、その R2 URL から PNG を fetch して
-    //      そのまま YouTube thumbnails.set に upload (render skip).
-    //   2. 予約なし → 5 表情ランダム + fal 背景で render → upload (fallback).
-    // best-effort: 失敗しても broadcast は live のまま続行.
-    try {
-      const reserved = await getReservedThumbnailUrl(channel);
-      let png: Buffer;
-      let source: string;
-      if (reserved) {
-        const r = await fetch(reserved, { signal: AbortSignal.timeout(30_000) });
-        if (!r.ok) throw new Error(`reserved fetch ${r.status}`);
-        png = Buffer.from(await r.arrayBuffer());
-        source = `reserved (${reserved})`;
-      } else {
-        const expr = pickSwitchExpression();
-        const bgUrl = await generateSwitchBackground();
-        png = await renderThumbnailPng({ channel, expr, tod: "day", bg: bgUrl ?? undefined });
-        source = `rendered (expr=${expr}, bg=${bgUrl ? "fal" : "default"})`;
-      }
-      // PNG upload to YouTube. R2 から拾った画像は jpeg/webp の可能性もあるが
-      // YouTube は image/png でも image/jpeg でも受けるので Content-Type を雑に
-      // 指定 (中身が PNG マジックでなければ拒否される).
-      const upRes = await fetch(
-        `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${broadcast.id}`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "image/png" },
-          body: new Uint8Array(png),
-        },
-      );
-      if (!upRes.ok) {
-        const errText = await upRes.text();
-        console.warn(`[switch:${channel}] thumbnail upload failed (${upRes.status}): ${errText.slice(0, 300)}`);
-      } else {
-        console.log(`[switch:${channel}] ✓ thumbnail uploaded — ${source}`);
-      }
-    } catch (err) {
-      console.warn(`[switch:${channel}] thumbnail flow error:`, err instanceof Error ? err.message : String(err));
-    }
-
-    // Notify generic listeners (logs, future consumers)
     await getRedisPub().publish(
       "stream:rtmp-switch",
       JSON.stringify({ channel, broadcast_id: broadcast.id, rtmp_url: fullRtmpUrl }),
     );
-
-    // Tell the broadcaster to reconnect its ffmpeg push.
-    // Required because EXTRA_RTMP_URL (pump.fun) puts YouTube behind tee with
-    // onfail=ignore, swallowing the YouTube TCP drop on broadcast rotation —
-    // without an explicit signal the new YouTube broadcast sits in "waiting".
-    // See yuna-stream/broadcaster/server.py:reconnect_rtmp.
-    await getRedisPub().publish(
-      `stream:broadcast:${channel}:command`,
-      JSON.stringify({ action: "rtmp_reconnect" }),
-    );
+    await publishBroadcasterCommand(channel, "rtmp_reconnect");
 
     res.json({
       ok: true,
@@ -526,11 +596,172 @@ router.post("/switch", async (req: Request, res: Response) => {
       stream_key: stream.stream_key,
       stream_created: stream.created,
       transitioned_to_live: liveOk,
-      title: broadcast.snippet.title,
+      title: broadcast.title,
       watch_url: `https://www.youtube.com/watch?v=${broadcast.id}`,
     });
   } catch (err) {
     console.error("[stream/youtube/switch]", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── /reserve — create broadcast WITHOUT binding/transitioning ──
+// scheduler が prep の N 分前に呼ぶ. watch_url を確定させて DB に書くだけ.
+// 実 live 化は /golive で行う.
+router.post("/reserve", async (req: Request, res: Response) => {
+  const { channel, scheduledStartTime, title, description, privacyStatus } = (req.body ?? {}) as {
+    channel?: unknown;
+    scheduledStartTime?: string;
+    title?: string;
+    description?: string;
+    privacyStatus?: string;
+  };
+  if (!isChannel(channel)) {
+    res.status(400).json({ error: "Invalid channel" });
+    return;
+  }
+  const creds = await getCredentials(channel);
+  if (!creds) {
+    res.status(400).json({ error: `Channel ${channel} not linked` });
+    return;
+  }
+
+  const tpl = await getTemplate(channel);
+  const { title: finalTitle, description: finalDescription } = resolveTitleAndDescription(channel, { title, description }, tpl);
+  const finalPrivacy = privacyStatus ?? "public";
+  const startTime = scheduledStartTime ?? new Date(Date.now() + 5 * 60_000).toISOString();
+
+  try {
+    const accessToken = await refreshAccessToken(creds);
+    // 前回の broadcast がまだ DB に残っていたら、念のため終わらせておく.
+    // (前 slot の /complete が網羅的に走ってるはずだが防御的に.)
+    await endActiveBroadcast(channel, accessToken);
+
+    // reusable stream は事前に存在するはず. 無ければここで作る (初回のみ).
+    const stream = await ensureReusableStream(channel, creds, accessToken);
+
+    const broadcast = await createBroadcast({
+      accessToken,
+      title: finalTitle,
+      description: finalDescription,
+      privacyStatus: finalPrivacy,
+      scheduledStartTime: startTime,
+    });
+
+    await persistBroadcastRow({
+      channel,
+      broadcastId: broadcast.id,
+      streamId: stream.stream_id,
+      ingestAddress: stream.ingest_address,
+      streamKey: stream.stream_key,
+      title: broadcast.title,
+    });
+    // サムネ upload は ここで完結させる (= prep 開始時には完了済みの状態を作る).
+    await uploadThumbnailForBroadcast({ channel, broadcastId: broadcast.id, accessToken });
+
+    res.json({
+      ok: true,
+      broadcast_id: broadcast.id,
+      title: broadcast.title,
+      scheduled_start_time: startTime,
+      watch_url: `https://www.youtube.com/watch?v=${broadcast.id}`,
+    });
+  } catch (err) {
+    console.error("[stream/youtube/reserve]", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── /golive — bind reserved broadcast + transition to live + restart ffmpeg ──
+// scheduler が prep に入った時点で呼ぶ.
+router.post("/golive", async (req: Request, res: Response) => {
+  const { channel } = (req.body ?? {}) as { channel?: unknown };
+  if (!isChannel(channel)) {
+    res.status(400).json({ error: "Invalid channel" });
+    return;
+  }
+  const creds = await getCredentials(channel);
+  if (!creds) {
+    res.status(400).json({ error: `Channel ${channel} not linked` });
+    return;
+  }
+  const r = await query<{ broadcast_id: string; stream_id: string; rtmp_url: string }>(
+    `SELECT broadcast_id, stream_id, rtmp_url FROM stream_youtube_broadcasts WHERE channel = $1`,
+    [channel],
+  );
+  const row = r.rows[0];
+  if (!row?.broadcast_id) {
+    res.status(400).json({ error: "No reserved broadcast found — call /reserve first" });
+    return;
+  }
+
+  try {
+    const accessToken = await refreshAccessToken(creds);
+    await bindBroadcastToStream({
+      accessToken,
+      broadcastId: row.broadcast_id,
+      streamId: row.stream_id,
+    });
+    const liveOk = await transitionToLiveWithRetry({
+      accessToken,
+      broadcastId: row.broadcast_id,
+      channel,
+    });
+
+    await getRedisPub().publish(
+      "stream:rtmp-switch",
+      JSON.stringify({ channel, broadcast_id: row.broadcast_id, rtmp_url: row.rtmp_url }),
+    );
+    // broadcaster 側に YouTube tee を有効化させる (en は both mode、ja は ffmpeg start).
+    await publishBroadcasterCommand(channel, "rtmp_reconnect");
+
+    res.json({
+      ok: true,
+      broadcast_id: row.broadcast_id,
+      transitioned_to_live: liveOk,
+      watch_url: `https://www.youtube.com/watch?v=${row.broadcast_id}`,
+    });
+  } catch (err) {
+    console.error("[stream/youtube/golive]", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── /complete — end current broadcast + tell broadcaster to drop YouTube ──
+// scheduler が idle に戻った時点で呼ぶ.
+router.post("/complete", async (req: Request, res: Response) => {
+  const { channel } = (req.body ?? {}) as { channel?: unknown };
+  if (!isChannel(channel)) {
+    res.status(400).json({ error: "Invalid channel" });
+    return;
+  }
+  const creds = await getCredentials(channel);
+  if (!creds) {
+    res.status(400).json({ error: `Channel ${channel} not linked` });
+    return;
+  }
+  const r = await query<{ broadcast_id: string }>(
+    `SELECT broadcast_id FROM stream_youtube_broadcasts WHERE channel = $1`,
+    [channel],
+  );
+  const broadcastId = r.rows[0]?.broadcast_id ?? null;
+
+  try {
+    if (broadcastId) {
+      const accessToken = await refreshAccessToken(creds);
+      await transitionToComplete({ accessToken, broadcastId });
+      // DB row は完了マークだけしておく (削除しない). 次回 /reserve が UPSERT で上書きする.
+      await query(
+        `UPDATE stream_youtube_broadcasts SET switched_at = switched_at WHERE channel = $1`,
+        [channel],
+      );
+    }
+    // broadcaster へ YouTube push 停止を通知 (en は pump-only restart、ja は ffmpeg 停止).
+    await publishBroadcasterCommand(channel, "youtube_stop");
+
+    res.json({ ok: true, broadcast_id: broadcastId, completed: !!broadcastId });
+  } catch (err) {
+    console.error("[stream/youtube/complete]", err);
     res.status(500).json({ error: String(err) });
   }
 });
