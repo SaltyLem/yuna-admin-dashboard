@@ -124,6 +124,17 @@ export interface RenderQuery {
   font?: string;
   charLeft?: string;
   charTop?: string;
+  /** "morning" | "noon" | "chat" — overlay の preset 専用 layout を選択 */
+  preset?: string;
+}
+
+/** Program (info:morning / info:noon / chat:* etc) → thumbnail preset 名. */
+export function programToPreset(program: string | null | undefined): "morning" | "noon" | "chat" {
+  if (program === "info:morning") return "morning";
+  if (program === "info:noon") return "noon";
+  // chat:morning, chat:afternoon, chat:evening, chat:golden, chat:goodnight,
+  // market:report 等は chat preset (= 既存 24h 雰囲気の bg) で扱う.
+  return "chat";
 }
 
 function buildOverlayUrl(q: RenderQuery, opts?: { staticChar?: boolean }): string {
@@ -201,6 +212,31 @@ const SWITCH_PROMPT_BASE =
   "16:9 aspect ratio, empty center area for character placement, " +
   "soft bokeh, dramatic lighting, high detail, vibrant colors";
 
+// 朝サムネ用 — 朝焼け / 朝食 / 起床帯の落ち着いた暖色系.
+const MORNING_PROMPT_THEMES = [
+  "soft sunrise sky over a quiet japanese town, warm orange and pink clouds, peaceful morning",
+  "cozy breakfast table with coffee and toast, soft window light, warm golden tones, anime aesthetic",
+  "tokyo skyline at sunrise, gradient sky from peach to lavender, calm city waking up",
+  "japanese countryside at dawn, mountains and rice fields, mist and pink sunrise light",
+  "morning beach with golden sun rising over the ocean, gentle warm waves",
+  "anime bedroom window in early morning, soft sunlight streaming in, dust motes",
+  "quiet cafe interior at sunrise, warm latte steam, anime aesthetic, golden hour",
+  "balcony view at sunrise, distant city silhouette, soft pink and orange clouds",
+];
+
+// 昼サムネ用 — 真昼の青空 / 元気な midday アクセント.
+const NOON_PROMPT_THEMES = [
+  "bright blue sky with white fluffy clouds, cheerful summer afternoon, vibrant",
+  "tropical beach at midday, turquoise water and palm trees, vivid colors",
+  "spring park with cherry blossoms in full bloom under bright noon sun, anime",
+  "city street lined with green trees in summer noon, vibrant blue sky",
+  "rooftop garden under noon sun, blue sky and fresh greens, cheerful",
+  "open field of sunflowers under bright midday sun, cheerful anime aesthetic",
+  "japanese shopping street at noon, bright sky, lively atmosphere",
+  "meadow with wildflowers under bright noon sky, soft white clouds",
+];
+
+// 雑談 (chat:*) 用 — 既存 24h 配信時の雰囲気を踏襲した部屋 / 夜系.
 const SWITCH_PROMPT_THEMES = [
   "cozy anime girl bedroom, plushies and fairy lights, soft pink ambient",
   "futuristic virtual idol studio, glowing screens, holographic panels",
@@ -254,18 +290,28 @@ function jstDateString(): string {
  */
 const bgCache = new Map<string, string>();
 
-export async function generateSwitchBackground(): Promise<string | null> {
+export async function generateSwitchBackground(
+  preset: "morning" | "noon" | "chat" = "chat",
+): Promise<string | null> {
   if (!YUNA_API_KEY) {
     console.warn("[thumbnail] YUNA_API_KEY not set — skip bg generation");
     return null;
   }
 
   const dateKey = jstDateString();
-  const cached = bgCache.get(dateKey);
+  // preset 別にキャッシュキーを分けて、同日の他枠と背景を取り違えないようにする.
+  const cacheKey = `${dateKey}:${preset}`;
+  const cached = bgCache.get(cacheKey);
   if (cached) return cached;
 
-  const seed = djb2(dateKey);
-  const theme = SWITCH_PROMPT_THEMES[seed % SWITCH_PROMPT_THEMES.length] ?? SWITCH_PROMPT_THEMES[0]!;
+  const themes =
+    preset === "morning" ? MORNING_PROMPT_THEMES :
+    preset === "noon" ? NOON_PROMPT_THEMES :
+    SWITCH_PROMPT_THEMES;
+  // seed には preset を混ぜて、同日でも morning / noon / chat の theme が独立に
+  // 決定論的に選ばれるように.
+  const seed = djb2(`${dateKey}:${preset}`);
+  const theme = themes[seed % themes.length] ?? themes[0]!;
   const prompt = `${theme}, ${SWITCH_PROMPT_BASE}`;
 
   try {
@@ -293,7 +339,7 @@ export async function generateSwitchBackground(): Promise<string | null> {
       console.warn("[thumbnail] yuna-api returned no url");
       return null;
     }
-    bgCache.set(dateKey, data.url);
+    bgCache.set(cacheKey, data.url);
     // 古い日付の cache を掃除 (メモリ漏れ防止)
     for (const k of bgCache.keys()) {
       if (k !== dateKey) bgCache.delete(k);

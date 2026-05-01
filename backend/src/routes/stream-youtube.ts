@@ -21,7 +21,7 @@ import { Router, type Request, type Response } from "express";
 import crypto from "crypto";
 import { Redis } from "ioredis";
 import { query } from "../db/client.js";
-import { generateSwitchBackground, pickSwitchExpression, renderThumbnailPng } from "./stream-youtube-thumbnail.js";
+import { generateSwitchBackground, pickSwitchExpression, renderThumbnailPng, programToPreset } from "./stream-youtube-thumbnail.js";
 import { getReservedThumbnailUrl } from "./stream-youtube-thumbnail-schedule.js";
 
 const router = Router();
@@ -486,6 +486,7 @@ async function uploadThumbnailForBroadcast(args: {
   channel: Channel;
   broadcastId: string;
   accessToken: string;
+  program?: string | null;     // info:morning / info:noon / chat:* etc.
 }): Promise<void> {
   try {
     const reserved = await getReservedThumbnailUrl(args.channel);
@@ -497,10 +498,20 @@ async function uploadThumbnailForBroadcast(args: {
       png = Buffer.from(await r.arrayBuffer());
       source = `reserved (${reserved})`;
     } else {
+      // program → preset (= overlay layout 切替) と bg theme pool 選択.
+      const preset = programToPreset(args.program);
+      // morning は朝焼け = day, noon は明色 = day, chat は夜寄り = evening をデフォに.
+      const tod = preset === "chat" ? "evening" : "day";
       const expr = pickSwitchExpression();
-      const bgUrl = await generateSwitchBackground();
-      png = await renderThumbnailPng({ channel: args.channel, expr, tod: "day", bg: bgUrl ?? undefined });
-      source = `rendered (expr=${expr}, bg=${bgUrl ? "fal" : "default"})`;
+      const bgUrl = await generateSwitchBackground(preset);
+      png = await renderThumbnailPng({
+        channel: args.channel,
+        preset,
+        expr,
+        tod,
+        bg: bgUrl ?? undefined,
+      });
+      source = `rendered (preset=${preset}, expr=${expr}, bg=${bgUrl ? "fal" : "default"})`;
     }
     const upRes = await fetch(
       `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${args.broadcastId}`,
@@ -627,12 +638,13 @@ router.post("/switch", async (req: Request, res: Response) => {
 // scheduler が prep の N 分前に呼ぶ. watch_url を確定させて DB に書くだけ.
 // 実 live 化は /golive で行う.
 router.post("/reserve", async (req: Request, res: Response) => {
-  const { channel, scheduledStartTime, title, description, privacyStatus } = (req.body ?? {}) as {
+  const { channel, scheduledStartTime, title, description, privacyStatus, program } = (req.body ?? {}) as {
     channel?: unknown;
     scheduledStartTime?: string;
     title?: string;
     description?: string;
     privacyStatus?: string;
+    program?: string;
   };
   if (!isChannel(channel)) {
     res.status(400).json({ error: "Invalid channel" });
@@ -676,7 +688,8 @@ router.post("/reserve", async (req: Request, res: Response) => {
     });
     await markBroadcastStatus(channel, "reserved");
     // サムネ upload は ここで完結させる (= prep 開始時には完了済みの状態を作る).
-    await uploadThumbnailForBroadcast({ channel, broadcastId: broadcast.id, accessToken });
+    // program (info:morning / info:noon / chat:*) で preset と bg theme が切り替わる.
+    await uploadThumbnailForBroadcast({ channel, broadcastId: broadcast.id, accessToken, program });
 
     res.json({
       ok: true,
