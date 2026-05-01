@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { apiFetch } from "@/components/use-api";
+import { apiFetch, getToken } from "@/components/use-api";
+
+const API_URL = process.env.NEXT_PUBLIC_ADMIN_API_URL ?? "http://localhost:4100";
 import { modal } from "@/components/modal";
 import { WeekView } from "@/components/week-view";
 import {
@@ -516,6 +518,8 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
         </div>
       )}
 
+      {schedule && <ScheduleThumbnails schedule={schedule} />}
+
       <div className="flex items-center gap-3 pt-2">
         {schedule && (
           <button
@@ -537,6 +541,214 @@ function ScheduleForm({ initial, schedule, programs, onSaved, onDeleted }: Sched
       </div>
     </div>
   );
+}
+
+// ── Per-date thumbnails for this schedule ──
+//
+// Schedule の次 occurrence を 14 日分 (or once は 1 日分) 出して、各日に
+// 個別サムネを upload / delete できるようにする. 設定が無い日は admin が
+// auto 生成 (preset + bg). 設定があれば最優先で使う.
+
+interface ThumbRow {
+  schedule_id: number;
+  date: string;
+  image_url: string;
+  source: string;
+}
+
+function ScheduleThumbnails({ schedule }: { schedule: Schedule }) {
+  const [rows, setRows] = useState<Record<string, ThumbRow>>({});
+  const [busyDate, setBusyDate] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // 次 14 日分 (recurring) or 1 日 (once) の occurrence 日付を出す.
+  const dates = upcomingDatesForSchedule(schedule, 14);
+
+  const reload = useCallback(async () => {
+    if (dates.length === 0) return;
+    const from = dates[0]!;
+    // dates[last] の翌日 (= exclusive upper bound)
+    const lastIso = dates[dates.length - 1]!;
+    const lastDate = new Date(lastIso + "T00:00:00Z");
+    lastDate.setUTCDate(lastDate.getUTCDate() + 1);
+    const to = `${lastDate.getUTCFullYear()}-${String(lastDate.getUTCMonth() + 1).padStart(2, "0")}-${String(lastDate.getUTCDate()).padStart(2, "0")}`;
+    try {
+      const data = await apiFetch<{ items: ThumbRow[] }>(
+        `/stream/youtube/thumbnail-schedule/by-schedule?from=${from}&to=${to}`,
+        { silent: true },
+      );
+      const m: Record<string, ThumbRow> = {};
+      for (const it of data.items) {
+        if (it.schedule_id !== schedule.id) continue;
+        m[it.date] = it;
+      }
+      setRows(m);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, [schedule.id, dates]);
+
+  useEffect(() => { void reload(); }, [reload]);
+
+  const onPick = async (date: string, file: File) => {
+    if (file.size > 8 * 1024 * 1024) {
+      setErr("8MB 以下にしてください");
+      return;
+    }
+    setBusyDate(date);
+    setErr(null);
+    try {
+      const res = await fetch(
+        `${API_URL}/stream/youtube/thumbnail-schedule/by-schedule/${schedule.id}/${date}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type,
+            Authorization: `Bearer ${getToken()}`,
+          },
+          body: file,
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setErr((data as { error?: string }).error ?? `HTTP ${res.status}`);
+        return;
+      }
+      await reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyDate(null);
+    }
+  };
+
+  const onDelete = async (date: string) => {
+    if (!confirm(`${date} のサムネ override を削除しますか?`)) return;
+    setBusyDate(date);
+    try {
+      await apiFetch(
+        `/stream/youtube/thumbnail-schedule/by-schedule/${schedule.id}/${date}`,
+        { method: "DELETE" },
+      );
+      await reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyDate(null);
+    }
+  };
+
+  return (
+    <div className="border border-border rounded-md p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-bold text-text-muted uppercase tracking-wider">
+          Per-date thumbnails
+        </div>
+        <div className="text-[11px] text-text-muted">
+          設定なし = 自動生成 (preset + bg)
+        </div>
+      </div>
+      {err && (
+        <div className="text-[11px] text-[color:var(--color-danger)] px-2 py-1 rounded bg-[color:var(--color-danger)]/10">
+          {err}
+        </div>
+      )}
+      <div className="space-y-1.5 max-h-64 overflow-y-auto">
+        {dates.length === 0 && (
+          <div className="text-xs text-text-muted py-2">
+            この schedule に該当する将来の日付がありません.
+          </div>
+        )}
+        {dates.map((d) => {
+          const row = rows[d];
+          const isBusy = busyDate === d;
+          return (
+            <div key={d} className="flex items-center gap-2 px-2 py-1.5 rounded bg-panel/40 border border-border">
+              <div className="text-xs font-mono w-24 shrink-0 text-text">
+                {d}
+              </div>
+              <div className="flex-1 min-w-0 flex items-center gap-2">
+                {row ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={row.image_url}
+                      alt=""
+                      className="h-9 w-16 object-cover rounded border border-border shrink-0"
+                    />
+                    <span className="text-[11px] text-text-muted truncate">
+                      override 設定済
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[11px] text-text-muted">
+                    自動生成 (override なし)
+                  </span>
+                )}
+              </div>
+              <label className="text-[11px] px-2 py-1 bg-panel hover:bg-panel-hover border border-border rounded cursor-pointer transition">
+                {row ? "差し替え" : "アップロード"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  disabled={isBusy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void onPick(d, f);
+                    e.target.value = "";   // 同じファイル再選択を許可
+                  }}
+                />
+              </label>
+              {row && (
+                <button
+                  onClick={() => void onDelete(d)}
+                  disabled={isBusy}
+                  className="text-[11px] px-2 py-1 text-[color:var(--color-danger)] hover:bg-[color:var(--color-danger)]/10 rounded transition disabled:opacity-50"
+                >
+                  削除
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Schedule の次 occurrence の date (YYYY-MM-DD, schedule timezone local) を最大 N 件返す.
+ *  recurring (daily/weekly) は今日から N 日分をスキャン. once は schedule 自身の日付のみ. */
+function upcomingDatesForSchedule(s: Schedule, maxCount: number): string[] {
+  const tz = s.timezone || DEFAULT_TZ;
+
+  if (s.repeat_type === "once") {
+    if (!s.starts_at) return [];
+    const d = splitInTz(s.starts_at, tz).date;
+    // 過去の once は出さない (今日 >= startsAt の date なら出す)
+    const todayLocal = todayInTz(tz);
+    return d >= todayLocal ? [d] : [];
+  }
+
+  const out: string[] = [];
+  const today = todayInTz(tz);
+  let cursor = new Date(today + "T00:00:00Z");
+  // 念のため scan 上限 60 日
+  for (let i = 0; i < 60 && out.length < maxCount; i++) {
+    const iso = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, "0")}-${String(cursor.getUTCDate()).padStart(2, "0")}`;
+    const inst = slotInstanceForDate(s, iso);
+    if (inst) out.push(iso);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return out;
+}
+
+function todayInTz(tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 // ── Modal content: recurring delete choice ──
