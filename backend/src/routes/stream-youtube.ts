@@ -439,6 +439,23 @@ async function transitionToComplete(args: {
   ).catch(() => {});
 }
 
+/** broadcast の lifecycle status を DB に記録する.
+ *  status: 'reserved' (作成済 / bind なし) → 'live' (transition→live 後) → 'completed' (transition→complete 後).
+ *  /golive が「fresh row があるか」判定するのに使う (status='completed' なら次回 reserve が無くても fallback で作り直す).
+ *
+ *  NOTE: `stream_youtube_broadcasts` テーブルに `status text` カラムが必要. 無ければ no-op (silently ignore). */
+async function markBroadcastStatus(channel: Channel, status: "reserved" | "live" | "completed"): Promise<void> {
+  try {
+    await query(
+      `UPDATE stream_youtube_broadcasts SET status = $1 WHERE channel = $2`,
+      [status, channel],
+    );
+  } catch (err) {
+    // status カラムがまだ migration されてない環境では落ちる可能性. warn のみで飲み込む.
+    console.warn(`[broadcast-status:${channel}] update failed (column may be missing):`, err instanceof Error ? err.message : String(err));
+  }
+}
+
 async function persistBroadcastRow(args: {
   channel: Channel;
   broadcastId: string;
@@ -579,6 +596,7 @@ router.post("/switch", async (req: Request, res: Response) => {
       streamKey: stream.stream_key,
       title: broadcast.title,
     });
+    await markBroadcastStatus(channel, "live");
     await uploadThumbnailForBroadcast({ channel, broadcastId: broadcast.id, accessToken });
 
     const fullRtmpUrl = `${stream.ingest_address}/${stream.stream_key}`;
@@ -633,9 +651,9 @@ router.post("/reserve", async (req: Request, res: Response) => {
 
   try {
     const accessToken = await refreshAccessToken(creds);
-    // 前回の broadcast がまだ DB に残っていたら、念のため終わらせておく.
-    // (前 slot の /complete が網羅的に走ってるはずだが防御的に.)
-    await endActiveBroadcast(channel, accessToken);
+
+    // NOTE: 前 broadcast の終了は /complete の責務. ここで endActiveBroadcast を
+    // 呼ぶと連続枠で前 slot の live を強制終了させてしまう. 信頼して呼ばない.
 
     // reusable stream は事前に存在するはず. 無ければここで作る (初回のみ).
     const stream = await ensureReusableStream(channel, creds, accessToken);
@@ -656,6 +674,7 @@ router.post("/reserve", async (req: Request, res: Response) => {
       streamKey: stream.stream_key,
       title: broadcast.title,
     });
+    await markBroadcastStatus(channel, "reserved");
     // サムネ upload は ここで完結させる (= prep 開始時には完了済みの状態を作る).
     await uploadThumbnailForBroadcast({ channel, broadcastId: broadcast.id, accessToken });
 
@@ -685,18 +704,55 @@ router.post("/golive", async (req: Request, res: Response) => {
     res.status(400).json({ error: `Channel ${channel} not linked` });
     return;
   }
-  const r = await query<{ broadcast_id: string; stream_id: string; rtmp_url: string }>(
-    `SELECT broadcast_id, stream_id, rtmp_url FROM stream_youtube_broadcasts WHERE channel = $1`,
+  const r = await query<{
+    broadcast_id: string; stream_id: string; rtmp_url: string;
+    ingest_address: string; stream_key: string; status: string | null;
+  }>(
+    `SELECT broadcast_id, stream_id, rtmp_url, ingest_address, stream_key, status
+     FROM stream_youtube_broadcasts WHERE channel = $1`,
     [channel],
   );
-  const row = r.rows[0];
-  if (!row?.broadcast_id) {
-    res.status(400).json({ error: "No reserved broadcast found — call /reserve first" });
-    return;
-  }
+  let row = r.rows[0];
 
   try {
     const accessToken = await refreshAccessToken(creds);
+
+    // Fallback: row が無い or 既に completed (= /reserve が走ってない/失敗した状態).
+    // 旧 /switch 相当のフローで in-line に作って bind + go-live まで一気に行く.
+    if (!row?.broadcast_id || row.status === "completed") {
+      console.warn(`[golive:${channel}] no fresh reservation found, falling back to inline create+bind+golive`);
+      const tpl = await getTemplate(channel);
+      const { title, description } = resolveTitleAndDescription(channel, {}, tpl);
+      const stream = await ensureReusableStream(channel, creds, accessToken);
+      const startTime = new Date(Date.now() + 60_000).toISOString();
+      const broadcast = await createBroadcast({
+        accessToken,
+        title,
+        description,
+        privacyStatus: "public",
+        scheduledStartTime: startTime,
+      });
+      await persistBroadcastRow({
+        channel,
+        broadcastId: broadcast.id,
+        streamId: stream.stream_id,
+        ingestAddress: stream.ingest_address,
+        streamKey: stream.stream_key,
+        title: broadcast.title,
+      });
+      await markBroadcastStatus(channel, "reserved");
+      // サムネ upload は ここでもやっておく (best-effort).
+      await uploadThumbnailForBroadcast({ channel, broadcastId: broadcast.id, accessToken });
+      row = {
+        broadcast_id: broadcast.id,
+        stream_id: stream.stream_id,
+        rtmp_url: `${stream.ingest_address}/${stream.stream_key}`,
+        ingest_address: stream.ingest_address,
+        stream_key: stream.stream_key,
+        status: "reserved",
+      };
+    }
+
     await bindBroadcastToStream({
       accessToken,
       broadcastId: row.broadcast_id,
@@ -707,6 +763,7 @@ router.post("/golive", async (req: Request, res: Response) => {
       broadcastId: row.broadcast_id,
       channel,
     });
+    await markBroadcastStatus(channel, "live");
 
     await getRedisPub().publish(
       "stream:rtmp-switch",
@@ -750,11 +807,7 @@ router.post("/complete", async (req: Request, res: Response) => {
     if (broadcastId) {
       const accessToken = await refreshAccessToken(creds);
       await transitionToComplete({ accessToken, broadcastId });
-      // DB row は完了マークだけしておく (削除しない). 次回 /reserve が UPSERT で上書きする.
-      await query(
-        `UPDATE stream_youtube_broadcasts SET switched_at = switched_at WHERE channel = $1`,
-        [channel],
-      );
+      await markBroadcastStatus(channel, "completed");
     }
     // broadcaster へ YouTube push 停止を通知 (en は pump-only restart、ja は ffmpeg 停止).
     await publishBroadcasterCommand(channel, "youtube_stop");
